@@ -74,6 +74,17 @@ func (s *stubCaller) Call(_ context.Context, method string, params any, out any)
 		agent.MethodFirewallTransaction,
 		agent.MethodFirewallTemplates:
 		return s.handleFirewallStub(method, params, out)
+	case agent.MethodPowerStatus,
+		agent.MethodPowerReboot,
+		agent.MethodPowerCancel,
+		agent.MethodScheduleList,
+		agent.MethodScheduleCreate,
+		agent.MethodScheduleUpdate,
+		agent.MethodScheduleDelete,
+		agent.MethodScheduleExecutions,
+		agent.MethodScheduleRunNow,
+		agent.MethodScheduleSync:
+		return s.handleFirewallStub(method, params, out)
 	case agent.MethodHealth:
 		*(out.(*model.AgentHealthResponse)) = model.AgentHealthResponse{
 			AgentHealth: s.health,
@@ -318,11 +329,10 @@ func TestOriginGuardAllowsSameOrigin(t *testing.T) {
 // TestNotImplementedReturns501 验证未实现接口返回 501 而非伪造成功。
 func TestNotImplementedReturns501(t *testing.T) {
 	env := newTestEnv(t, false)
-	// M2 已实现防火墙规则读写，因此这里只保留仍未实现的接口。
+	// M2/M3 已实现防火墙与电源调度，这里只保留仍未实现的接口。
+	// 剩下的是 M4 启动项管理与 M6 OrbStack，实现后同样要移出本列表。
 	paths := []struct{ method, path string }{
-		{http.MethodPost, "/api/v1/power/reboot"},
 		{http.MethodGet, "/api/v1/services"},
-		{http.MethodPost, "/api/v1/schedules"},
 	}
 	for _, p := range paths {
 		rec := env.do(t, p.method, p.path, nil)
@@ -690,15 +700,15 @@ func TestMetaReportsFeatureFlags(t *testing.T) {
 	data := e.Data.(map[string]any)
 	features := data["features"].(map[string]any)
 
-	// M2 已实现防火墙写入，其余仍为 false
-	for _, k := range []string{"powerControl", "serviceControl", "scheduleControl"} {
+	// M3 已实现电源与调度写入；M4 的服务控制仍未实现。
+	for _, k := range []string{"serviceControl"} {
 		if v, ok := features[k].(bool); !ok || v {
-			t.Errorf("M2 阶段 %s 仍必须为 false", k)
+			t.Errorf("M3 阶段 %s 仍必须为 false", k)
 		}
 	}
-	for _, k := range []string{"firewallRead", "firewallWrite"} {
+	for _, k := range []string{"firewallRead", "firewallWrite", "powerControl", "scheduleControl"} {
 		if v, _ := features[k].(bool); !v {
-			t.Errorf("M2 阶段 %s 应为 true", k)
+			t.Errorf("M3 阶段 %s 应为 true", k)
 		}
 	}
 }

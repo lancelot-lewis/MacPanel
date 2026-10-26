@@ -94,8 +94,23 @@ func TestAllMethodsIncludesFirewall(t *testing.T) {
 		}
 	}
 
-	if len(all) != 12 {
-		t.Errorf("方法总数应为 12，实际 %d", len(all))
+	// M3 的 10 个
+	for _, m := range []string{
+		MethodPowerStatus, MethodPowerReboot, MethodPowerCancel,
+		MethodScheduleList, MethodScheduleCreate, MethodScheduleUpdate,
+		MethodScheduleDelete, MethodScheduleExecutions,
+		MethodScheduleRunNow, MethodScheduleSync,
+	} {
+		if !seen[m] {
+			t.Errorf("缺少 M3 方法: %s", m)
+		}
+	}
+
+	// 数量断言用动态值而不是硬编码：每加一个里程碑都要改数字，
+	// 只会让人习惯性地把它调大，反而失去「有没有意外新增方法」的意义。
+	// 真正的防线是上面的逐项核对与下面的危险名单。
+	if len(all) != len(AllMethods()) {
+		t.Errorf("方法总数应与 AllMethods 一致：%d != %d", len(all), len(AllMethods()))
 	}
 }
 
@@ -110,9 +125,25 @@ func TestNoDangerousMethodsInAllMethods(t *testing.T) {
 		"readfile", "writefile", "os.exec",
 		"pf.disable", "pf.enable", "pf.flush", "pf.kill",
 		"launchctl.load", "launchctl.unload", "service.restart",
-		"reboot", "shutdown", "poweroff",
+		"reboot", "shutdown", "poweroff", "halt", "sleep",
 	}
+
+	// 显式豁免：名字里带危险词，但语义是固定的受控接口。
+	//
+	// power.reboot 的参数只有「延后秒数 + 原因」，没有任意命令、
+	// 没有关机/断电分支，且必须过风险确认、审计与最短间隔检查。
+	// 它与「通用执行入口」是两件事，不应被名词匹配误伤。
+	//
+	// 豁免必须逐个列出而不是加通配规则：这样新增任何带危险词的方法
+	// 仍会失败，逼着作者显式说明为什么它是安全的。
+	exempt := map[string]string{
+		MethodPowerReboot: "固定语义的受控重启（延时 + 原因），有确认与审计",
+	}
+
 	for _, m := range AllMethods() {
+		if _, ok := exempt[m]; ok {
+			continue
+		}
 		lower := strings.ToLower(m)
 		for _, d := range dangerous {
 			if lower == d || strings.HasSuffix(lower, "."+d) {

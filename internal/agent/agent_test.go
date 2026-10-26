@@ -65,6 +65,17 @@ func TestMethodsAreWhitelisted(t *testing.T) {
 		MethodFirewallRollback:    true,
 		MethodFirewallTransaction: true,
 		MethodFirewallTemplates:   true,
+		// M3 电源与计划任务
+		MethodPowerStatus:        true,
+		MethodPowerReboot:        true,
+		MethodPowerCancel:        true,
+		MethodScheduleList:       true,
+		MethodScheduleCreate:     true,
+		MethodScheduleUpdate:     true,
+		MethodScheduleDelete:     true,
+		MethodScheduleExecutions: true,
+		MethodScheduleRunNow:     true,
+		MethodScheduleSync:       true,
 	}
 	for _, m := range methods {
 		if !allowed[m] {
@@ -76,12 +87,17 @@ func TestMethodsAreWhitelisted(t *testing.T) {
 	}
 
 	// 显式确认危险方法名不存在。
+	//
+	// 注意 power.reboot 不在此列：M3 确实提供了它，但它是**固定语义**
+	// 的受控接口（参数只有延后秒数与原因，无任意命令、无关机/断电分支），
+	// 且有风险确认、审计与最短间隔保护。这与「通用执行入口」是两件事。
+	// 关机/断电必须永久缺席——前者无法远程恢复，后者等于物理断电。
 	dangerous := []string{
 		"system.exec", "exec", "shell", "run",
 		"file.read", "file.write", "file.remove",
 		"pf.apply", "pf.enable", "pf.disable", "pf.flush",
 		"launchctl.load", "launchctl.unload",
-		"power.reboot", "power.shutdown",
+		"power.shutdown", "power.halt", "power.sleep",
 	}
 	for _, d := range dangerous {
 		for _, m := range methods {

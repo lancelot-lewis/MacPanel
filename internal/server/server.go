@@ -92,9 +92,17 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/v1/firewall/transaction", s.handleRulesTransaction)
 	api.HandleFunc("GET /api/v1/firewall/templates", s.handleRulesTemplates)
 	api.HandleFunc("GET /api/v1/firewall/revisions", s.handleRulesRevisions)
-	api.HandleFunc("GET /api/v1/schedules", s.handleNotImplemented("定时任务"))
-	api.HandleFunc("POST /api/v1/schedules", s.handleNotImplemented("创建定时任务"))
-	api.HandleFunc("POST /api/v1/power/reboot", s.handleNotImplemented("受控重启"))
+	// M3：电源与计划任务
+	api.HandleFunc("GET /api/v1/power/status", s.handlePowerStatus)
+	api.HandleFunc("POST /api/v1/power/reboot", s.handlePowerReboot)
+	api.HandleFunc("POST /api/v1/power/cancel", s.handlePowerCancel)
+	api.HandleFunc("GET /api/v1/schedules", s.handleScheduleList)
+	api.HandleFunc("POST /api/v1/schedules", s.handleScheduleCreate)
+	api.HandleFunc("PUT /api/v1/schedules/{id}", s.handleScheduleUpdate)
+	api.HandleFunc("DELETE /api/v1/schedules/{id}", s.handleScheduleDelete)
+	api.HandleFunc("GET /api/v1/schedules/executions", s.handleScheduleExecutions)
+	api.HandleFunc("POST /api/v1/schedules/{id}/run", s.handleScheduleRunNow)
+	api.HandleFunc("POST /api/v1/schedules/sync", s.handleScheduleSync)
 	api.HandleFunc("GET /api/v1/services", s.handleNotImplemented("启动项管理"))
 
 	api.HandleFunc("GET /api/v1/audit", s.handleAuditList)
@@ -165,9 +173,9 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 			// 明确的能力声明：前端据此禁用按钮，而不是假装可用。
 			"firewallRead":    true,
 			"firewallWrite":   true,
-			"powerControl":    false,
+			"powerControl":    true,
 			"serviceControl":  false,
-			"scheduleControl": false,
+			"scheduleControl": true,
 		},
 	}, &meta{Degraded: agentErr != nil, Notes: notes})
 }

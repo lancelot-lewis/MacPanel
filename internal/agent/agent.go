@@ -35,6 +35,8 @@ type Agent struct {
 	methods   []string
 	// fw 是 M2 防火墙能力依赖。为 nil 时相关方法返回「未实现」。
 	fw *FirewallDeps
+	// power 是 M3 电源与调度能力依赖。为 nil 时相关方法返回「未实现」。
+	power *PowerDeps
 }
 
 // Options 构造参数。
@@ -83,6 +85,17 @@ func AllMethods() []string {
 		MethodFirewallRollback,
 		MethodFirewallTransaction,
 		MethodFirewallTemplates,
+		// M3：电源与计划任务
+		MethodPowerStatus,
+		MethodPowerReboot,
+		MethodPowerCancel,
+		MethodScheduleList,
+		MethodScheduleCreate,
+		MethodScheduleUpdate,
+		MethodScheduleDelete,
+		MethodScheduleExecutions,
+		MethodScheduleRunNow,
+		MethodScheduleSync,
 	}
 }
 
@@ -103,6 +116,9 @@ func (a *Agent) RegisterAll(srv *ipc.Server) {
 	srv.Register(MethodFirewallRollback, a.handleRollback)
 	srv.Register(MethodFirewallTransaction, a.handleTransaction)
 	srv.Register(MethodFirewallTemplates, a.handleTemplates)
+
+	// M3 电源与计划任务。同样总是注册，依赖未就绪时返回「未实现」。
+	a.registerPower(srv)
 }
 
 // Methods 返回已实现的方法名。

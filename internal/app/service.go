@@ -149,3 +149,98 @@ func (s *Service) FirewallTemplates(ctx context.Context) (json.RawMessage, error
 	}
 	return out, nil
 }
+
+// ---- M3：电源与计划任务 ----
+//
+// 与防火墙方法一致：参数与响应都用 json.RawMessage 直传。
+// Agent 的返回结构会随版本演进，Server 二次编解码可能静默丢字段。
+
+// PowerStatus 读取电源与调度状态。
+func (s *Service) PowerStatus(ctx context.Context) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodPowerStatus, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PowerReboot 排定重启。
+func (s *Service) PowerReboot(ctx context.Context, params any) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodPowerReboot, params, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PowerCancel 取消待执行的重启。
+func (s *Service) PowerCancel(ctx context.Context, params any) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodPowerCancel, params, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ScheduleList 读取全部计划任务。
+func (s *Service) ScheduleList(ctx context.Context) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodScheduleList, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ScheduleCreate 创建计划任务。
+func (s *Service) ScheduleCreate(ctx context.Context, params any) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodScheduleCreate, params, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ScheduleUpdate 更新计划任务。
+func (s *Service) ScheduleUpdate(ctx context.Context, params any) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodScheduleUpdate, params, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ScheduleDelete 删除计划任务。
+func (s *Service) ScheduleDelete(ctx context.Context, params any) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodScheduleDelete, params, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ScheduleExecutions 读取执行记录。
+func (s *Service) ScheduleExecutions(ctx context.Context, params any) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodScheduleExecutions, params, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ScheduleRunNow 立即执行一次任务。
+func (s *Service) ScheduleRunNow(ctx context.Context, params any) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodScheduleRunNow, params, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ScheduleSync 把任务同步到 launchd。
+func (s *Service) ScheduleSync(ctx context.Context) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodScheduleSync, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}

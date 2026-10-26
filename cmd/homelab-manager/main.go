@@ -57,6 +57,8 @@ func run(args []string) error {
 	switch cmd {
 	case "server":
 		return runServer(rest)
+	case "task-run":
+		return runTaskRun(rest)
 	case "agent":
 		return runAgent(rest)
 	case "status":
@@ -287,19 +289,31 @@ func runAgent(args []string) error {
 		return err
 	}
 
-	// 装配 M2 防火墙能力。失败时降级为「只读可用、写入不可用」，
-	// 不阻断 Agent 启动——这比整体起不来更利于排障。
+	// 装配 M2 防火墙与 M3 电源/调度能力。
+	//
+	// 两者共用同一个数据库连接池。失败都只降级不阻断启动——
+	// Agent 起不来会让整个面板失联，比部分功能不可用严重得多。
 	var fwWiring firewallWiring
-	if dbForFw, derr := database.Open(context.Background(), cfg.DatabasePath()); derr != nil {
-		log.Warn("防火墙能力不可用：数据库打开失败", "error", derr)
+	var pwWiring powerWiring
+	if db, derr := database.Open(context.Background(), cfg.DatabasePath()); derr != nil {
+		log.Warn("防火墙与电源能力不可用：数据库打开失败", "error", derr)
 	} else {
-		defer dbForFw.Close()
-		fwWiring = wireFirewall(context.Background(), cfg, log, dbForFw, *devMode)
+		defer db.Close()
+
+		fwWiring = wireFirewall(context.Background(), cfg, log, db, *devMode)
 		if fwWiring.enabled {
 			ag.SetFirewallDeps(fwWiring.deps)
 			log.Info("防火墙读写能力已启用")
 		} else {
 			log.Warn("防火墙读写能力未启用", "reason", fwWiring.disabledWhy)
+		}
+
+		pwWiring = wirePower(context.Background(), cfg, log, db, *devMode)
+		if pwWiring.enabled {
+			ag.SetPowerDeps(pwWiring.deps)
+			log.Info("电源与计划任务能力已启用")
+		} else {
+			log.Warn("电源与计划任务能力未启用", "reason", pwWiring.disabledWhy)
 		}
 	}
 
@@ -312,6 +326,15 @@ func runAgent(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// 调度器在 ctx 就绪后启动：它要跑后台 ticker，
+	// 并且恢复待执行重启需要能感知关闭信号。
+	if pwWiring.enabled && pwWiring.deps != nil {
+		if err := pwWiring.deps.Scheduler.Start(ctx); err != nil {
+			log.Warn("启动调度器失败", "error", err)
+		}
+		defer pwWiring.deps.Scheduler.Stop()
+	}
 
 	log.Info("Agent 启动",
 		"socket", cfg.SocketPath,
