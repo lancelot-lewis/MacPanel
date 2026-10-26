@@ -8,6 +8,44 @@ macOS HomeLab 管理面板。**ADR-001 已决策：Go + Vue 3 Web-first，
 
 边界：默认只监听 `127.0.0.1`；远程访问需显式开启并完成认证/HTTPS 验收。
 
+## 前端：Naive UI（2026-10-26 用户决定）
+
+用户主动选择引入 Naive UI，理由是 **M2 的重表单**（"长痛不如短痛"）。
+不要退回纯手写方案，也不要换成别的库。
+
+必须遵守的约定：
+
+- **按需注册，不要 `app.use(naive)`**：全量注册产物 gzip 442 kB，
+  按需后 243 kB（naive 187 + vue 42 + 业务 19）。注册表在
+  `web/src/theme/components.ts`，**新增组件必须补一行**。
+- **`theme/` 是组件库唯一入口**：业务页面只用 CSS 变量
+  （`var(--color-*)`）或组件的 `type` 属性，不直接 import 主题变量。
+- **明暗模式只有一个真源** `theme/mode.ts`：同时驱动 `html.dark` 与
+  `NConfigProvider :theme`。两套各自判断 `prefers-color-scheme` 会撕裂
+  （卡片深色、底色浅色）。
+
+### 组件库踩坑（都实际发生过）
+
+| 现象 | 原因 |
+| --- | --- |
+| 页面全白且只 warn 不报错 | `NCard.name === "Card"`，`N` 前缀只在导出名上。不能用 `c.name` 注册 |
+| 产物 1584 kB | `app.use(naive)` 全量注册 |
+| 深色模式底色撕裂 | CSS 变量与组件库各自判断系统偏好 |
+| 大量对比度不达标 | 库把语义色同时用作文字色和 12% 透明底 |
+| `type="primary"` 的 Tag 覆盖无效 | 该类型走 `primaryColor`，不受 `Tag.textColor` 影响；改用 `type="info"` |
+| 移动端侧栏不隐藏 | `NLayoutSider` 自身是 flex 元素，`hidden/lg:block` 被组件样式覆盖；用外层 div |
+
+### 对比度（WCAG AA 4.5:1，别信默认值）
+
+组件库默认值实测不达标，已在 `themeOverrides` 修正：
+绿 `#1f9d55`(3.05)→`#146b3b`(5.6)、橙 `#d98a00`(2.25)→`#7a4f00`(6.2)、
+蓝 `#2f6fed`(3.89)→`#1d4fb5`(6.4)、三级文字浅色 `#666c76`(4.9)/深色 `#8b93a0`(5.2)。
+`placeholder` 与必填星号需在 `style.css` 用 `!important` 修补。
+品牌标识白字用固定 `--color-brand-mark: #2359c9`，不能用会随主题变亮的 accent。
+
+**检测对比度必须逐层叠加半透明背景**，否则半透明底会被当成实色，
+产生大量假阳性（第一版脚本就报了 20+ 个假问题）。
+
 ## 最强的产品约束：不伪造状态
 
 这条约束贯穿三层，改动任何一层都要保持一致：
