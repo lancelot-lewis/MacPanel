@@ -1,6 +1,6 @@
 # 故障恢复与 CLI 救援
 
-> 对应里程碑：M0 / M1
+> 对应里程碑：M0 / M1，防火墙救援命令随 M2 补齐
 > 最后更新：2026-10-26
 
 ## 1. 设计前提
@@ -24,6 +24,11 @@ homelab-manager status --json
 # 查看生效配置（不启动任何服务，只打印并校验）
 homelab-manager config -mode server
 homelab-manager config -mode agent
+
+# 防火墙状态与本地回滚（不经 IPC，面板打不开时也能用）
+sudo homelab-manager firewall status
+sudo homelab-manager firewall rollback
+sudo homelab-manager firewall unload
 ```
 
 `status` 的行为：
@@ -33,7 +38,15 @@ homelab-manager config -mode agent
 - Agent 不可达时**不报错退出**，而是逐项打印「不可达原因」，便于定位是
   Agent 没起来、令牌不匹配，还是 Socket 权限问题。
 
+`firewall` 系列与之相反：**刻意不连 IPC**。它是面板失联时的兜底，
+因此自己直接读 root 独占的事务状态文件、直接调用 PF executor。
+详见 [3.8](#38-规则导致失联最紧急)。
+
 ## 3. 常见故障与处置
+
+> **如果你的机器刚刚还能连上、应用/修改了 IPv6 防火墙规则之后才断连，
+> 不要在本节逐项排查，直接跳到 [3.8 规则导致失联](#38-规则导致失联最紧急)。**
+> 那一节的三条命令不需要面板、不需要 Agent、不需要网络。
 
 ### 3.1 Web 面板打不开
 
@@ -169,6 +182,68 @@ sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.manager.serve
 注意：非回环地址必须同时设置 `HLM_ALLOW_REMOTE=true`，否则启动时会直接报错退出
 （这是安全不变量，不是缺陷）。
 
+### 3.8 规则导致失联（最紧急）
+
+**症状**：应用规则后 SSH / 面板连不上；或 rules → apply 之后确认倒计时走完也没恢复。
+
+面板里的「回滚」按钮要走「浏览器 → Web Server → IPC → Agent」四跳，
+而挡住连接的恰恰是刚应用的规则，这条链路本身可能已经断了。
+因此这种情况**必须用本地终端**（物理接入 / 带外控制台 / iKVM），命令如下。
+
+```bash
+# 1. 先看发生了什么（纯只读，永远不会改动系统）
+sudo /usr/local/bin/homelab-manager firewall status
+
+# 2. 存在待确认配置时用回滚（幂等，重复执行无害）
+sudo /usr/local/bin/homelab-manager firewall rollback
+
+# 3. 若 2 提示「当前没有已应用的配置可回滚」，说明状态文件已失效或从未建立，
+#    但 anchor 里可能仍有本应用的规则残留 —— 用 unload 无条件清空
+sudo /usr/local/bin/homelab-manager firewall unload
+```
+
+三条命令的边界（这也是它们能安全使用的原因）：
+
+| 行为 | 说明 |
+| --- | --- |
+| 不经过 IPC 与 Web Server | Agent 未运行、端口被挡住时依然可用 |
+| 只操作本应用 anchor | `pfctl -a com.homelab.manager.ipv6 -f /dev/null` |
+| 绝不执行 `pfctl -d` | 不会全局关闭 PF，其它程序的规则不受影响 |
+| 不删除规则文件 | 内容保留，可事后检查当初写了什么 |
+| 非 root 自动 dry-run | 输出与真实流程一致但不改系统，可用于预演 |
+
+`status` 输出里的关键字段：
+
+| 字段 | 怎么读 |
+| --- | --- |
+| `PF` | 「未知（不可读）」表示当前不是 root，不是「已关闭」 |
+| `Anchor` | 「文件存在」≠ 已生效；需同时看「主配置引用」 |
+| `事务/阶段` | `待确认` → 用 `rollback`；`已确认` → 规则正在生效，`rollback` 可撤回 |
+| `截止时间` | 剩余秒数归零后，只要 Agent 存活就会自动回滚 |
+| `提示` | 已按当前状态算出下一步该执行什么 |
+
+**为什么还需要 Agent 之外的手段**：倒计时由 Agent 进程内的定时器驱动。
+如果 Agent 在规则加载后被杀掉或机器重启，那个定时器就没了——
+此时 `firewall status` 会显示「已超时」，而自动回滚不会发生，
+必须有人在终端里执行 `rollback` 或 `unload`。
+
+恢复后建议做的三件事：
+
+```bash
+# 1. 确认回环与本机的 IPv6 出口仍然通
+ping6 -c 2 ::1
+nc -6 -z -w 2 <本机公网 IPv6> 22 && echo "外部可达" || echo "仍不可达"
+
+# 2. 先看这版规则做了什么（规则文件不会被删除）
+sudo pfctl -a com.homelab.manager.ipv6 -sr
+
+# 3. 在面板里改好再应用；先加一条允许自己 SSH 来源的规则
+```
+
+> 纪律：**首次在生产 Mac 上启用规则时，务必保留一个不受该规则影响的通道**
+> （物理接入、另一条 VLAN、Tailscale）。
+> 「网页上能点确认」不等于「远程连接还能用」。
+
 ## 4. 完全卸载
 
 ```bash
@@ -185,8 +260,14 @@ sudo /path/to/uninstall.sh
 
 **绝不会做的事**：`pfctl -d`、修改 `/etc/pf.conf`、删除其它程序的 anchor 或 plist。
 
-若曾启用 PF 规则（M2 之后），卸载前应先通过面板「停用规则」回到无规则状态，
-再移除 `/etc/pf.conf` 中的引用并 `sudo pfctl -f /etc/pf.conf`。
+若曾启用 PF 规则（M2 之后），卸载前应先让本应用退出 PF：
+
+```bash
+sudo homelab-manager firewall unload     # 清空本应用 anchor
+sudo pfctl -a com.homelab.manager.ipv6 -sr  # 确认为空
+```
+
+再移除 `/etc/pf.conf` 中的引用并 `sudo pfctl -f /etc/pf.conf`，最后执行卸载脚本。
 
 ## 5. 灾难恢复清单
 
@@ -221,3 +302,6 @@ sudo pfctl -s Anchors
 | 非 Socket 路径直接拒绝启动 | 防止误删用户数据（已有测试 `TestNonSocketPathNotRemoved`） |
 | Agent 崩溃后由 launchd 重启 | `KeepAlive.SuccessfulExit=false` + `ThrottleInterval=10` |
 | M2 的超时回滚必须由 Agent 持久管理 | Server 可能崩溃或浏览器关闭，回滚不能依赖它们 |
+| 回滚之外再提供 `firewall unload` | 倒计时由 Agent 进程内的定时器驱动；Agent 不在时它不会触发，需要一个不挑状态的兜底手段 |
+| CLI 救援不经过 IPC | 一旦规则挡住网络，面板那条链路本身可能已经断了 |
+| 非 root 时 CLI 自动 dry-run | 宁可让用户看到「什么都没发生」，也不能让非特权进程悄悄改 PF |

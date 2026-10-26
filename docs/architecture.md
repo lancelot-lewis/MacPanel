@@ -278,6 +278,35 @@ idle ──────────► pending ───────────
 为什么需要参数级：`pfctl` 既能 `-a <anchor> -f <file>`（安全），
 也能 `-d`（全局关闭防火墙）。只校验路径等于没限制。
 
+### CLI 救援为什么绕过 IPC
+
+`homelab-manager firewall {status,rollback,unload}` 直接 read/write root 独占的
+事务状态文件并直接调用 `firewalld.Manager`，**不经过 Server 与 Unix Socket**。
+
+```text
+browser ──► Server ──► IPC ──► Agent ──► firewalld ──► PFExecutor ──► pfctl
+                                            ▲
+terminal ────────────── firewall CLI ───────┘（同一套 firewalld / PFExecutor）
+```
+
+这不是绕过安全边界，而是**少跳两站**：两者共用同一个 `firewalld` 与
+`PFExecutor`，因此 pfctl 的三层限制一条不少。区别在于：
+
+| | 面板回滚 | CLI 回滚 |
+| --- | --- | --- |
+| 需要先决条件 | Server + IPC + Agent 全部存活 | 只要二进制在 |
+| 规则挡住 SSH 后 | 大概率已不可用 | 可用（本机终端） |
+| 权限要求 | 会话身份 | root（非 root 自动 dry-run） |
+
+`unload` 与 `rollback` 的差异是刻意保留的两个语义：
+
+- `rollback` 取消**当前事务**，没有事务时报错（避免掩盖「状态文件已失效」这个事实）；
+- `unload` 只回答「让本应用不再持有任何 PF 规则」，与当前阶段无关。
+
+后者存在的原因是：倒计时的定时器活**在 Agent 进程里**。Agent 若在规则加载后被杀，
+那个定时器就消失了，此时 `status` 会显示「已超时」却不会触发任何自动回滚——
+必须有一个不依赖历史状态的手段把 anchor 清干净。
+
 ## 7.2 M3：调度与电源的分层
 
 ```text
