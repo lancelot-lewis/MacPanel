@@ -19,3 +19,7 @@ web/.vite/
 packaging/**/build/
 packaging/**/*.pkg
 packaging/**/*.dmg
+
+# 分发产物（输出到仓库根目录）
+/HomeLabManager-*.pkg
+/HomeLabManager-*.dmg

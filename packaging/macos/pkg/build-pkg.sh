@@ -60,6 +60,9 @@ mkdir -p "${SCRIPTS_DIR}"
 echo "==> 复制二进制与 launchd 定义"
 install -m 0755 "${BINARY}" "${PAYLOAD_ROOT}/usr/local/bin/homelab-manager"
 
+# 卸载脚本随包安装：出事的人最需要它，而那时他大概率已经找不到下载回来的 DMG 了。
+install -m 0755 "${REPO_ROOT}/packaging/macos/uninstall.sh" "${PAYLOAD_ROOT}/usr/local/bin/homelab-manager-uninstall"
+
 for plist in "${REPO_ROOT}"/packaging/macos/launchd/*.plist; do
 	name="$(basename "${plist}")"
 	sed -e "s|__BINARY_PATH__|/usr/local/bin/homelab-manager|g" \
@@ -67,6 +70,82 @@ for plist in "${REPO_ROOT}"/packaging/macos/launchd/*.plist; do
 		"${plist}" > "${PAYLOAD_ROOT}/Library/LaunchDaemons/${name}"
 	chmod 0644 "${PAYLOAD_ROOT}/Library/LaunchDaemons/${name}"
 done
+
+echo "==> 生成安装前脚本（升级前备份）"
+#
+# 为什么必须有 preinstall：升级会覆盖 /usr/local/bin/homelab-manager
+# 并重启服务，此时若新版本的数据库迁移或配置校验失败，旧数据就是唯一的退路。
+# PLAN.md 第 10 节把「安装前备份」列为硬要求。
+#
+# 与 postinstall 的分工：
+#   preinstall  停服务 → 备份数据/令牌/PF 现状（此时旧二进制还在）
+#   postinstall 建账户 → 建目录 → 生成令牌 → 加载服务
+cat > "${SCRIPTS_DIR}/preinstall" <<'PREINSTALL'
+#!/bin/bash
+set -uo pipefail
+
+BIN="/usr/local/bin/homelab-manager"
+DATA_DIR="/Library/Application Support/HomeLabManager"
+TOKEN="${DATA_DIR}/ipc.token"
+ANCHOR="/etc/pf.anchors/com.homelab.manager.ipv6"
+ANCHOR_NAME="com.homelab.manager.ipv6"
+# 保留的备份份数上限：够回溯几次升级，又不会让数据目录无限增长。
+KEEP=5
+
+# 全新安装时没有任何东西可备份，直接返回成功。
+if [[ ! -d "${DATA_DIR}" ]]; then
+	echo "全新安装：无需备份"
+	exit 0
+fi
+
+echo "检测到既有安装，开始升级前备份"
+
+# 1. 先停服务再备份。
+#    SQLite 处于 WAL 模式，直接复制运行中的文件可能拿到不一致的快照；
+#    停服 '.backup' 之前先让它 checkpoint 完毕是最省事的做法。
+launchctl bootout system /Library/LaunchDaemons/com.homelab.manager.server.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.homelab.manager.agent.plist 2>/dev/null || true
+
+STAMP="$(date +%Y%m%d-%H%M%S)"
+BACKUP_ROOT="${DATA_DIR}/backups"
+BACKUP_DIR="${BACKUP_ROOT}/preupgrade-${STAMP}"
+mkdir -p "${BACKUP_DIR}"
+
+# 2. 数据库与令牌
+[[ -d "${DATA_DIR}/data" ]] && cp -a "${DATA_DIR}/data" "${BACKUP_DIR}/data"
+[[ -f "${TOKEN}" ]] && cp -a "${TOKEN}" "${BACKUP_DIR}/ipc.token"
+
+# 3. PF 现状：文件 + 实际生效的规则。
+#    两者可能不一致（文件改了没加载），都要留。
+if [[ -f "${ANCHOR}" ]]; then
+	cp -a "${ANCHOR}" "${BACKUP_DIR}/anchor-rules.conf"
+fi
+if [[ -x /sbin/pfctl ]]; then
+	/sbin/pfctl -a "${ANCHOR_NAME}" -sr > "${BACKUP_DIR}/anchor-live.rules" 2>/dev/null || true
+	/sbin/pfctl -s info > "${BACKUP_DIR}/pf-info.txt" 2>/dev/null || true
+	/sbin/pfctl -s Anchors > "${BACKUP_DIR}/pf-anchors.txt" 2>/dev/null || true
+fi
+[[ -f /etc/pf.conf ]] && cp -a /etc/pf.conf "${BACKUP_DIR}/pf.conf" 2>/dev/null || true
+
+chmod -R 0700 "${BACKUP_DIR}"
+echo "已备份到 ${BACKUP_DIR}"
+
+# 4. 只保留最近 KEEP 份，避免每次升级都留一份把磁盘慢慢吃光
+if ls -1d "${BACKUP_ROOT}"/preupgrade-* >/dev/null 2>&1; then
+	ls -1d "${BACKUP_ROOT}"/preupgrade-* | sort | head -n -"${KEEP}" | while read -r old; do
+		rm -rf "${old}"
+		echo "已清理旧备份 $(basename "${old}")"
+	done
+fi
+
+# 备份失败不能让安装继续：宁可停在半路，也不要在没有退路的情况下升级。
+if [[ ! -d "${BACKUP_DIR}" ]]; then
+	echo "错误: 备份失败，中止安装" >&2
+	exit 1
+fi
+exit 0
+PREINSTALL
+chmod 0755 "${SCRIPTS_DIR}/preinstall"
 
 echo "==> 生成安装后脚本"
 cat > "${SCRIPTS_DIR}/postinstall" <<'POSTINSTALL'
@@ -80,20 +159,40 @@ LOG_DIR="/Library/Logs/HomeLabManager"
 TOKEN="${DATA_DIR}/ipc.token"
 
 # 1. 创建专用非特权账户（已存在则跳过）
+#
+# UID/GID 从 350 起向下找空位：硬编码一个值在已装过其它软件的机器上
+# 会撞号，而 dscl -create 失败会连带让整个安装器失败。
+HM_UID=350
+HM_GID=350
+uid_in_use() { dscl . -list /Users UniqueID 2>/dev/null | awk '{print $2}' | grep -qx "$1"; }
+gid_in_use() { dscl . -list /Groups PrimaryGroupID 2>/dev/null | awk '{print $2}' | grep -qx "$1"; }
+
 if ! dscl . -read /Users/_homelab >/dev/null 2>&1; then
-	echo "创建服务账户 _homelab"
-	# 使用隐藏账户，UID 由系统分配（范围 400-499 为系统保留）
+	while uid_in_use "${HM_UID}"; do
+		HM_UID=$((HM_UID - 1))
+	done
+	echo "创建服务账户 _homelab（UID ${HM_UID}）"
 	dscl . -create /Users/_homelab
 	dscl . -create /Users/_homelab RealName "HomeLab Manager"
-	dscl . -create /Users/_homelab UniqueID 350
-	dscl . -create /Users/_homelab PrimaryGroupID 350
+	dscl . -create /Users/_homelab UniqueID "${HM_UID}"
 	dscl . -create /Users/_homelab UserShell /usr/bin/false
 	dscl . -create /Users/_homelab NFSHomeDirectory /var/empty
 	dscl . -create /Users/_homelab IsHidden 1
+fi
+
+# 组单独判定：只建用户、不建组会让 UserName=_homelab 的 launchd 任务起不来。
+if ! dscl . -read /Groups/_homelab >/dev/null 2>&1; then
+	while gid_in_use "${HM_GID}"; do
+		HM_GID=$((HM_GID - 1))
+	done
+	echo "创建服务组 _homelab（GID ${HM_GID}）"
 	dscl . -create /Groups/_homelab
-	dscl . -create /Groups/_homelab PrimaryGroupID 350
+	dscl . -create /Groups/_homelab PrimaryGroupID "${HM_GID}"
 	dscl . -create /Groups/_homelab RealName "HomeLab Manager"
 fi
+
+# 无论账户是这次新建的还是已存在的，都确保两者 ID 对齐。
+dscl . -create /Users/_homelab PrimaryGroupID "$(dscl . -read /Groups/_homelab PrimaryGroupID | awk '{print $2}')"
 
 # 2. 目录与权限
 #    Agent 以 root 运行；Server 以 _homelab 运行，只能读取令牌、不能写入。
@@ -126,74 +225,29 @@ launchctl bootstrap system /Library/LaunchDaemons/com.homelab.manager.agent.plis
 launchctl bootstrap system /Library/LaunchDaemons/com.homelab.manager.server.plist
 
 echo "安装完成。管理面板: http://127.0.0.1:7788"
-echo "注意：本版本（M1）未安装任何 PF 规则，不会修改系统防火墙。"
+echo ""
+echo "说明："
+echo "  · 安装器不会启用任何 PF 规则——IPv6 防火墙需要你在面板里显式编辑并应用。"
+echo "  · 应用规则会进入 60 秒确认倒计时，未确认会自动回滚。"
+echo "  · 若规则导致 SSH 失联，在本机终端执行："
+echo "      sudo ${BIN} firewall status"
+echo "      sudo ${BIN} firewall rollback"
+echo ""
+echo "卸载：sudo /usr/local/bin/homelab-manager-uninstall"
 exit 0
 POSTINSTALL
 chmod 0755 "${SCRIPTS_DIR}/postinstall"
 
-echo "==> 生成卸载脚本说明（不包含在 PKG 中，随文档分发）"
-cat > "${BUILD_DIR}/uninstall.sh" <<'UNINSTALL'
-#!/bin/bash
-# HomeLab Manager 卸载脚本
-#
-# 用途：移除本应用的服务、launchd 定义、二进制与（可选）数据。
-#
-# 安全原则：
-#   - 绝不执行 pfctl -d（那会导致整机防火墙关闭）
-#   - 不删除其它程序的 anchor 或 launchd 项
-#   - 数据默认保留，需显式确认才删除
-set -euo pipefail
-
-echo "==> 停止并移除 launchd 服务"
-launchctl bootout system /Library/LaunchDaemons/com.homelab.manager.agent.plist 2>/dev/null || true
-launchctl bootout system /Library/LaunchDaemons/com.homelab.manager.server.plist 2>/dev/null || true
-rm -f /Library/LaunchDaemons/com.homelab.manager.agent.plist
-rm -f /Library/LaunchDaemons/com.homelab.manager.server.plist
-
-echo "==> 移除可执行文件"
-rm -f /usr/local/bin/homelab-manager
-
-echo "==> 移除运行时目录"
-rm -rf /var/run/homelab-manager
-
-echo "==> 处理本应用的 PF anchor"
-ANCHOR="/etc/pf.anchors/com.homelab.manager.ipv6"
-if [[ -f "${ANCHOR}" ]]; then
-	echo "检测到 anchor 文件: ${ANCHOR}"
-	echo "注意：必须先确认 /etc/pf.conf 中的引用已移除，否则 PF 重载会报错。"
-	echo "本脚本不会自动修改 /etc/pf.conf，也不会关闭 PF。"
-	echo "如需移除引用，请手动编辑 /etc/pf.conf 并执行: sudo pfctl -f /etc/pf.conf"
-	echo "保留 anchor 文件。如需删除: sudo rm '${ANCHOR}'"
-fi
-
-echo "==> 数据处理"
-read -r -p "是否删除数据库与配置 (/Library/Application Support/HomeLabManager)? [y/N] " answer
-case "${answer}" in
-	y|Y)
-		rm -rf "/Library/Application Support/HomeLabManager"
-		echo "已删除数据"
-		;;
-	*)
-		echo "已保留数据: /Library/Application Support/HomeLabManager"
-		;;
-esac
-
-read -r -p "是否删除日志 (/Library/Logs/HomeLabManager)? [y/N] " answer2
-case "${answer2}" in
-	y|Y) rm -rf /Library/Logs/HomeLabManager ;;
-	*) echo "已保留日志" ;;
-esac
-
-echo "卸载完成。"
-UNINSTALL
-chmod 0755 "${BUILD_DIR}/uninstall.sh"
-
 echo "==> 构建组件包"
 COMPONENT_PKG="${BUILD_DIR}/component.pkg"
 
-# 清除扩展属性：macOS 会为下载/构建产物打 com.apple.provenance，
-# pkgbuild 会把这些属性写成 payload 里的 ._* 旁支文件，
-# 并因权限不足输出 "write: Permission denied"。安装包里不需要这些元数据。
+# macOS 会给本地产生的文件写上 com.apple.provenance。它是内核合成的：
+# 删除调用返回成功但属性仍在（本机实测 xattr -c / -d / removexattr 都拿不掉）。
+# pkgbuild 处理它时会为每条记录额外生成 `._xxx` AppleDouble 一并塞进 BOM，
+# 安装后系统里会多出几个隐藏文件——功能不受影响，卸载脚本会顺手清掉。
+# 这里仍然尽力尝试清除：换到 CI 或干净构建机上通常就不需要这一步了。
+find "${PAYLOAD_ROOT}" -exec xattr -d com.apple.provenance {} \; 2>/dev/null || true
+find "${PAYLOAD_ROOT}" -exec xattr -d com.apple.quarantine {} \; 2>/dev/null || true
 xattr -cr "${PAYLOAD_ROOT}" 2>/dev/null || true
 
 # --ownership recommended：交给安装器按目标文件系统分配属主，
@@ -220,9 +274,12 @@ echo "已生成: ${OUTPUT_PKG}"
 echo "大小: $(du -h "${OUTPUT_PKG}" | cut -f1)"
 echo ""
 echo "下一步（需人工执行并验证）："
-echo "  1. 在测试机上安装: sudo installer -pkg '${OUTPUT_PKG}' -target /"
-echo "  2. 验证服务: launchctl print system/com.homelab.manager.agent | head -20"
-echo "  3. 验证面板: curl -s http://127.0.0.1:7788/api/v1/healthz"
-echo "  4. 卸载测试: sudo '${BUILD_DIR}/uninstall.sh'"
+echo "  1. 静态校验（不需要 root）:  make verify-pkg"
+echo "  2. 在测试机上安装:          sudo installer -pkg '${OUTPUT_PKG}' -target /"
+echo "  3. 验证服务:                sudo launchctl print system/com.homelab.manager.agent | head -20"
+echo "  4. 验证面板:                curl -s http://127.0.0.1:7788/api/v1/healthz"
+echo "  5. 验证防火墙救援通道:      sudo /usr/local/bin/homelab-manager firewall status"
+echo "  6. 卸载测试:                sudo homelab-manager-uninstall"
+echo "  7. 完整验收清单:            docs/m5-acceptance.md"
 echo ""
 echo "警告：本包未签名。分发前需 Developer ID 签名与公证，否则 Gatekeeper 会拦截。"

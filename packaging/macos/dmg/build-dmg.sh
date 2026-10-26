@@ -14,12 +14,31 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-VERSION="$(cd "${REPO_ROOT}" && git describe --tags --always --dirty 2>/dev/null || echo "0.1.0-dev")"
-
-PKG_FILE="${REPO_ROOT}/HomeLabManager-${VERSION}.pkg"
-DMG_FILE="${REPO_ROOT}/HomeLabManager-${VERSION}.dmg"
 STAGING="${SCRIPT_DIR}/build/staging"
 VOLUME_NAME="HomeLabManager"
+
+# DMG 里必须装的是「PKG 脚本实际产出的那个文件」。
+# 早先这里自行计算版本号，与 build-pkg.sh 的规则不一致
+# （那边无 tag 时固化成 0.1.0，这边用 git describe 得到提交哈希），
+# 结果是 DMG 去找一个根本不存在的 pkg 然后必然失败。
+# 现在改为按实际产物推导，版本以产包为准。
+PKGS="$(cd "${REPO_ROOT}" 2>/dev/null && ls HomeLabManager-*.pkg 2>/dev/null | sort -V)"
+COUNT="$(printf '%s\n' "${PKGS}" | grep -c . || true)"
+
+if [[ "${COUNT}" -eq 0 ]]; then
+	echo "错误: 未找到任何 HomeLabManager-*.pkg，请先运行 make pkg（或 ./packaging/macos/pkg/build-pkg.sh）" >&2
+	exit 1
+fi
+if [[ "${COUNT}" -gt 1 ]]; then
+	echo "发现多个 PKG：$(printf '%s\n' "${PKGS}" | tr '\n' ' ')"
+	echo "   取最新的一个打包；旧包建议手工删除，避免分发错版本。"
+fi
+
+# macOS 自带 bash 3.2 不支持 negative subscript（arr[-1]），用 tail 取最后一个。
+PKG_FILE="${REPO_ROOT}/$(printf '%s\n' "${PKGS}" | tail -1)"
+VERSION="${PKG_FILE##*HomeLabManager-}"
+VERSION="${VERSION%.pkg}"
+DMG_FILE="${REPO_ROOT}/HomeLabManager-${VERSION}.dmg"
 
 if [[ ! -f "${PKG_FILE}" ]]; then
 	echo "错误: 未找到 ${PKG_FILE}，请先运行 ./packaging/macos/pkg/build-pkg.sh" >&2
@@ -45,16 +64,23 @@ HomeLab Manager — 安装说明
   3. 安装完成后打开 http://127.0.0.1:7788
 
 二、安全提示
-  - 本版本（M1）完全只读，不会添加任何 PF 防火墙规则。
+  - 首次安装不会启用任何 PF 规则：IPv6 防火墙需要你在面板里显式编辑并应用。
+  - 应用规则会启动 60 秒确认倒计时；超时未确认会自动回滚。
+  - 若规则导致 SSH 失联，在本机终端执行（详见 docs/recovery.md 3.8）：
+      sudo /usr/local/bin/homelab-manager firewall status
+      sudo /usr/local/bin/homelab-manager firewall rollback
   - PF 状态需要 root 才能读取；Agent 以 root 运行后可读取。
   - 默认只监听 127.0.0.1。启用远程访问前必须先设置管理密码并配置 HTTPS。
 
 三、验证安装
   launchctl print system/com.homelab.manager.agent | head -20
+  launchctl print system/com.homelab.manager.server | head -20
   curl -s http://127.0.0.1:7788/api/v1/healthz
+  sudo /usr/local/bin/homelab-manager firewall status
 
 四、卸载
-  使用随包分发的 uninstall.sh，或参考 docs/recovery.md。
+  sudo /usr/local/bin/homelab-manager-uninstall
+  或参考 docs/recovery.md 第 4 节。
 
 五、签名说明
   当前包未签名，Gatekeeper 可能提示「无法验证开发者」。
@@ -62,6 +88,8 @@ HomeLab Manager — 安装说明
 README
 
 echo "==> 创建临时 DMG"
+# hdiutil 在 macOS 27 上仍可用但已标记 deprecated；
+# 换成 diskutil image create 时记得校验 UDRW→UDZO 的压缩步骤能否一次到位。
 TMP_DMG="${SCRIPT_DIR}/build/temp.dmg"
 hdiutil create -srcfolder "${STAGING}" -volname "${VOLUME_NAME}" -fs HFS+ \
 	-format UDRW -ov "${TMP_DMG}" >/dev/null
