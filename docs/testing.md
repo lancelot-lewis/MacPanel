@@ -312,6 +312,24 @@ DST 跳变、跨年、时钟回拨、错过执行窗口、循环重启间隔…�
 
 这是刻意的分层结果：**最容易出错的部分也是最容易测试的部分**。
 
+### 3.2 快照之后的变动（2026-10-26 晚，M5 收尾）
+
+补了防火墙本地救援 CLI 与打包校验后：
+
+```text
+测试函数      368 → 377
+internal/platform/darwin/firewalld   43.2% → 44.7%（新增 Unload 及其测试）
+cmd/homelab-manager                  新增 CLI 单元测试（路径一致性、日志渲染、阶段文案）
+合计覆盖率                           54.5% → 53.2%（分母变大，不是退步）
+```
+
+新增的 9 个测试里，有 3 个是**防漂移**性质的：
+
+- `TestFirewallStatePathFollowsSocketDir` / `TestFirewallStatePathMatchesAgentWiring`
+  —— CLI 与 Agent 必须读同一个事务状态文件，一旦有人把路径内联回另一处就会失败；
+- `TestRenderLogArgs`——Logger 接口是 slog 风格，用 `fmt.Sprintf` 展开会输出
+  `%!(EXTRA …)`（真实踩过）。
+
 ## 4. 实机验收清单（M1）
 
 以下项目需在真实 macOS 上手工执行并记录。**勾选前必须实际运行过命令。**
@@ -401,12 +419,27 @@ DST 跳变、跨年、时钟回拨、错过执行窗口、循环重启间隔…�
 
 ### 4.6 打包
 
+```bash
+make pkg          # 产出 HomeLabManager-<version>.pkg
+make verify-pkg   # 不需要 root 的结构校验（见下文）
+make dmg          # 产出同名 .dmg
+```
+
 - [x] `plutil -lint` 校验两个 launchd plist 均通过
-- [x] `./packaging/macos/pkg/build-pkg.sh` 成功产出 `HomeLabManager-0.1.0.pkg`（4.6 MB）
-- [x] `pkgutil --expand-full` 确认载荷仅 3 个文件，属主 wheel
+- [x] PKG 构建成功（当前 5.9 MB）
+- [x] `scripts/verify-pkg.sh` 静态校验：30 项通过，0 项失败
+      （脚本语法、plist、占位符、BOM 清单与权限、launchd 运行身份）
+- [x] DMG 构建成功并能找到 PKG——此前版本推导方式不一致导致必然失败，已修复
+- [x] 卸载脚本随包安装到 `/usr/local/bin/homelab-manager-uninstall`
 - [ ] PKG 在干净系统安装验证（M5）
-- [ ] DMG 构建与挂载验证（M5）
+- [ ] 升级流程与 preinstall 备份恢复验证（M5）
+- [ ] DMG 挂载与安装器交互流程验证（M5）
 - [ ] Developer ID 签名与公证（M5）
+
+完整执行清单见 [`docs/m5-acceptance.md`](docs/m5-acceptance.md) 第 3 节。
+
+> 已知现象：本机构建环境下 BOM 会含 `._xxx` AppleDouble 条目（macOS 给本地文件写
+> 的 `com.apple.provenance` 删不掉）。`verify-pkg` 将其列为警告，卸载脚本会清理。
 
 ## 4.7 M2 防火墙实机验收清单（需 root，未验证）
 

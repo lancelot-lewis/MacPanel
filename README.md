@@ -3,24 +3,29 @@
 macOS HomeLab 管理面板。单个 Go 二进制 + 内嵌 Vue 3 前端，原生运行、不依赖 Docker，
 用于统一管理系统状态、IPv6 防火墙、定时重启、启动项与网络诊断。
 
-> **当前版本：M0–M4 + M6 功能完成；M5（安装验证）与实机验证待做**
+> **当前版本：M0–M4 + M6 功能完成；M5 打包链路已打通并完成静态校验，干净系统安装待验证**
 >
 > **已实现**
 > - 系统概览、网络接口、操作审计、本地/远程认证
 > - IPv6 防火墙：规则编辑 / 预览 / 应用 / 60 秒超时回滚 / 崩溃恢复
+> - **本地终端救援**：`firewall status|rollback|unload`（不经 IPC，面板失联时可用）
 > - 电源与计划任务：受控重启、每日/每周/固定间隔/单次、最短间隔保护、
 >   失败熔断、错过执行策略、launchd 调度、崩溃恢复
 > - 启动项：launchd 服务扫描与分类、受管白名单、受控启停
 > - 网络诊断：TCP 连通性检测（区分拒绝/超时/不可达）、IPv6 路由与监听端口
 > - OrbStack：容器只读列表（无任何写操作）
+> - 打包：PKG / DMG 构建、升级前自动备份、随包安装的卸载脚本、包结构静态校验
 >
 > **未实现**：容器启停、PF 规则命中统计、Tailscale/EasyTier 状态、多用户 RBAC。
+> **未签名**：分发前需 Developer ID 签名与公证。
 >
 > ⚠️ **以下行为未在本机实机验证**（开发机无 root）：
+> - PKG 的真实安装 / 升级 / 卸载
 > - PF 真实加载（见 [`docs/m2-acceptance.md`](docs/m2-acceptance.md)）
 > - 真实重启、launchd 真实调度与触发（见 [`docs/m3-m4-m6-acceptance.md`](docs/m3-m4-m6-acceptance.md)）
 >
-> 首次部署前请按这两份文档的「未验证」清单逐项确认，并保留可用的本地终端。
+> 首次部署前请按 [`docs/m5-acceptance.md`](docs/m5-acceptance.md) 第 3 节的清单逐项确认，
+> 并**保留一个不受 PF 规则影响的本地通道**（显示器或另一条网络）。
 
 ## 技术路线
 
@@ -36,9 +41,11 @@ M2 的核心是「规则编辑器」——端口范围、CIDR、协议、多接�
 
 代价与取舍：
 
-- **体积**：按需注册后 gzip 约 243 kB（naive 187 + vue 42 + 业务 19），
-  是纯手写方案（52 kB）的 4.7 倍。这是引入组件库的固有成本。
-- **不做全量注册**：`app.use(naive)` 会让产物涨到 gzip 442 kB，
+- **体积**：按需注册后 gzip 约 295 kB（naive 212 + vue 42 + 业务 37 + CSS 4），
+  是纯手写方案（52 kB）的 5.7 倍。这是引入组件库的固有成本。
+  （数字随每次构建浮动，以 `npm run build` 输出为准）
+- **不做全量注册**：改成 `app.use(naive)` 全量注册会让产物显著变大
+  （历史测量：gzip 442 kB），因此用具名导入 + 显式注册表。
   因此改为具名导入 + 显式注册表（`web/src/theme/components.ts`）。
 - **视觉不跟随默认风格**：通过 `themeOverrides` 对齐既有的极简灰阶，
   保留「macOS 系统设置页」的克制感。换库时只需重写 `web/src/theme/`。
@@ -105,6 +112,28 @@ make dev-status                              # 人类可读
 
 `status` 在 Agent 不可达时不报错退出，而是逐项打印不可达原因。
 
+### 防火墙本地救援（不经 IPC）
+
+`firewall` 子命令刻意**不连接 Web Server 与 Unix Socket**：
+规则一旦把 SSH 挡在外面，面板那条链路本身就断了，而这两条命令还能用。
+
+```bash
+sudo /usr/local/bin/homelab-manager firewall status     # 纯只读：PF 状态 + 事务 + 倒计时
+sudo /usr/local/bin/homelab-manager firewall rollback   # 回滚当前事务（幂等）
+sudo /usr/local/bin/homelab-manager firewall unload     # 无条件清空本应用 anchor
+
+# 非 root 自动进入 dry-run，可用于预演
+./bin/homelab-manager firewall status -dev
+```
+
+`rollback` 与 `unload` 的区别是刻意保留的两种语义：
+
+- `rollback` 取消**当前事务**，没有事务时报错（不掩盖「状态文件已失效」这个事实）；
+- `unload` 只回答「让本应用不再持有任何 PF 规则」，与当前阶段无关。
+
+后者存在的原因是：倒计时定时器活**在 Agent 进程里**，Agent 若在规则加载后被杀，
+超时不会自动触发任何回滚。详见 [`docs/recovery.md`](docs/recovery.md) 第 3.8 节。
+
 ### 前端热重载开发
 
 ```bash
@@ -112,9 +141,43 @@ make dev-server      # 终端 1：后端 7788
 make web-dev         # 终端 2：Vite 5173，/api 自动代理到 7788
 ```
 
-### 常用命令
+## 打包与安装
 
-### 启用防火墙规则写入
+```bash
+make pkg           # 构建 PKG（不安装）
+make verify-pkg    # 静态校验包结构（不需要 root，不会安装任何东西）
+make dmg           # 构建 DMG 分发容器
+```
+
+`verify-pkg` 检查脚本语法、plist 合法性、占位符是否残留、Payload 文件清单与权限、
+launchd 运行身份等 30 项。它**不能替代**真机安装，但能把「卸载脚本忘了进包」
+这类错误从「装一次才发现」压缩到一秒。
+
+安装与卸载：
+
+```bash
+sudo installer -pkg HomeLabManager-<version>.pkg -target /
+sudo homelab-manager-uninstall            # 交互式，数据与日志默认保留
+sudo homelab-manager-uninstall --purge    # 连数据与日志一起删除
+```
+
+`preinstall` 会把数据库、令牌与 PF 现状备份到
+`/Library/Application Support/HomeLabManager/backups/preupgrade-<时间戳>/`，
+只保留最近 5 份。
+
+## 常用命令
+
+```bash
+make test            # 全部 Go 测试
+make test-race       # 竞态检测
+make test-cover      # 覆盖率
+make check           # fmt + vet + test + 前端类型检查
+make pkg             # 构建 PKG（不安装）
+make verify-pkg      # 静态校验包结构
+make dmg             # 构建 DMG（不挂载）
+```
+
+## 启用防火墙规则写入
 
 Agent 以 root 运行时才会真正调用 pfctl。开发环境（`-dev` 或非 root）自动进入
 **dry-run 模式**：完整走通生成、校验、状态机与界面，但不触碰系统防火墙。
@@ -125,15 +188,6 @@ make dev-agent
 
 # 真实模式（需 root，会实际修改 PF）
 sudo ./bin/homelab-manager agent
-```
-
-```bash
-make test            # 全部 Go 测试
-make test-race       # 竞态检测
-make test-cover      # 覆盖率
-make check           # fmt + vet + test + 前端类型检查
-make pkg             # 构建 PKG（不安装）
-make dmg             # 构建 DMG（不挂载）
 ```
 
 ## 目录结构
@@ -162,8 +216,9 @@ make dmg             # 构建 DMG（不挂载）
 │   ├── src/theme/                组件库主题覆盖、明暗模式、按需注册的组件表
 │   ├── dist/                     构建产物（被 go:embed 打包）
 │   └── embed.go                  前端资源嵌入
-├── packaging/macos/              launchd 模板、PKG/DMG 构建脚本
-├── docs/                         架构、安全、API、恢复、测试
+├── packaging/macos/              uninstall.sh、launchd 模板、PKG/DMG 构建脚本
+├── scripts/                      verify-pkg.sh（包结构静态校验）
+├── docs/                         架构、安全、API、恢复、测试与各里程碑验收
 ├── Makefile
 └── PLAN.md                       产品计划与 ADR
 ```
@@ -203,16 +258,19 @@ make dmg             # 构建 DMG（不挂载）
    接近「活动监视器」但不等价，页面已标注。
 4. **APFS 容量**：根卷与数据卷共享容器，数值可能相同，属系统真实语义。
 5. **安装包未签名**：Gatekeeper 会拦截，需手动放行或自行签名。
-6. **前端无自动化测试**：仅有 TypeScript 类型检查 + 脚本化浏览器验证
+6. **AppleDouble 残留**：本机构建环境会给 payload 打上删不掉的 `com.apple.provenance`，
+   导致 BOM 里多出 `._xxx` 条目。安装只是多几个隐藏文件，卸载脚本会清理；
+   换到 CI / 干净构建机打包则不再出现（`make verify-pkg` 会提示）。
+7. **前端无自动化测试**：仅有 TypeScript 类型检查 + 脚本化浏览器验证
    （对比度、溢出、交互流程均已脚本化检查，见 `docs/testing.md`）。
-7. **PF 写入未实机验证**：M2 的 `pfctl` 调用路径已完整实现并有 180 个测试覆盖逻辑层，
+8. **PF 写入未实机验证**：M2 的 `pfctl` 调用路径已完整实现并有 180 个测试覆盖逻辑层，
    但**真实加载未在本机执行**（无 root）。首次使用前请按
    `docs/m2-acceptance.md` 第 5 节逐项验证，并保留可用的本地终端。
-8. **回滚是「清空 anchor」**：不恢复上一份规则内容（本应用只持有历史哈希，
+9. **回滚是「清空 anchor」**：不恢复上一份规则内容（本应用只持有历史哈希，
    不复制规则文件以缩小敏感面）。如需恢复历史规则，需重新保存并应用。
-9. **组件库体积**：Naive UI 按需注册后仍占 gzip 约 193 kB，是整包的主要体积来源。
-10. **组件库需手动登记**：新增 Naive UI 组件必须在 `web/src/theme/components.ts`
-   补一行，否则模板中会解析失败（控制台 `Failed to resolve component`）。
+10. **组件库体积**：Naive UI 按需注册后仍占 gzip 约 212 kB，是整包的主要体积来源。
+11. **组件库需手动登记**：新增 Naive UI 组件必须在 `web/src/theme/components.ts`
+    补一行，否则模板中会解析失败（控制台 `Failed to resolve component`）。
 
 ## 文档
 
@@ -226,6 +284,11 @@ make dmg             # 构建 DMG（不挂载）
 | [docs/m1-acceptance.md](docs/m1-acceptance.md) | M1 验收记录 |
 | [docs/m2-acceptance.md](docs/m2-acceptance.md) | M2 验收记录（含必须实机验证的清单） |
 | [docs/m3-m4-m6-acceptance.md](docs/m3-m4-m6-acceptance.md) | M3/M4/M6 验收记录（已验证 / 未验证清单） |
+| [docs/m5-acceptance.md](docs/m5-acceptance.md) | M5 验收记录与逐条实机测试手册 |
+
+准备首次部署时，按 `docs/m5-acceptance.md` 第 3 节从头执行一遍即可，
+它已经把 `m2-acceptance.md` 与 `m3-m4-m6-acceptance.md` 里优先级最高的
+交叉项合并到了同一份清单。
 
 ## 许可
 
