@@ -6,7 +6,7 @@
 // 而管理面板是长期自用的工具，键盘效率很重要。
 //
 // 移动端不用 NDrawer 而是收成顶部下拉菜单：
-// 侧栏只有 6 项，抽屉的额外层级反而增加操作步数。
+// 侧栏只有 7 项，抽屉的额外层级反而增加操作步数。
 
 import { computed, h, onMounted, ref } from 'vue'
 import type { VNodeChild } from 'vue'
@@ -23,7 +23,7 @@ const dialog = useDialog()
 
 const collapsed = ref(false)
 
-// 用内联 SVG 而非图标库：只有 6 个图标，不值得引入额外依赖。
+// 用内联 SVG 而非图标库：只有 7 个图标，不值得引入额外依赖。
 // 返回 VNode 数组（h('svg', props, children) 的 children 形态）。
 function renderIcon(children: VNodeChild[]) {
   return () =>
@@ -64,6 +64,11 @@ const iconPaths: Record<string, VNodeChild[]> = {
     h('path', { d: 'M12 3v9' }),
     h('path', { d: 'M18.4 6.6a9 9 0 11-12.8 0' }),
   ],
+  services: [
+    // 列表/堆叠图标，表示启动项
+    h('path', { d: 'M4 6h16M4 12h16M4 18h10' }),
+    h('circle', { cx: 20, cy: 18, r: 1.6 }),
+  ],
   audit: [h('path', { d: 'M4 5h16v14H4z' }), h('path', { d: 'M8 9h8M8 13h5' })],
   settings: [
     h('circle', { cx: 12, cy: 12, r: 3 }),
@@ -88,6 +93,11 @@ const menuOptions = computed<MenuOption[]>(() => [
     label: () => h(RouterLink, { to: '/power' }, () => '电源与计划'),
     key: '/power',
     icon: renderIcon(iconPaths.power!),
+  },
+  {
+    label: () => h(RouterLink, { to: '/services' }, () => '启动项'),
+    key: '/services',
+    icon: renderIcon(iconPaths.services!),
   },
   {
     label: () => h(RouterLink, { to: '/network' }, () => '网络诊断'),

@@ -264,3 +264,52 @@ export const scheduleApi = {
     return request<SyncResult>('/api/v1/schedules/sync', { method: 'POST', body: '{}' })
   },
 }
+
+// ---- M4：启动项管理 ----
+
+import type {
+  ManagedService,
+  ServiceActionResult,
+  ServiceDetail,
+  ServicesOverview,
+} from './services'
+
+export const servicesApi = {
+  async list(includeGui = true): Promise<ApiResult<ServicesOverview>> {
+    const q = new URLSearchParams()
+    if (includeGui) q.set('includeGui', '1')
+    return request<ServicesOverview>(`/api/v1/services?${q}`)
+  },
+
+  async detail(label: string, domain = 'system'): Promise<ApiResult<ServiceDetail>> {
+    const q = new URLSearchParams({ label, domain })
+    return request<ServiceDetail>(`/api/v1/services/detail?${q}`)
+  },
+
+  /** 登记受管服务。登记后仍需 allowControl 才允许启停。 */
+  async register(svc: {
+    label: string
+    domain: string
+    plistPath: string
+    displayName?: string
+    allowControl: boolean
+  }): Promise<ApiResult<ManagedService>> {
+    return request<ManagedService>('/api/v1/services/register', {
+      method: 'POST',
+      body: JSON.stringify(svc),
+    })
+  },
+
+  async unregister(label: string): Promise<ApiResult<{ ok: boolean }>> {
+    const q = new URLSearchParams({ label })
+    return request<{ ok: boolean }>(`/api/v1/services/register?${q}`, { method: 'DELETE' })
+  },
+
+  /** 启停服务。必须带 confirmsRisk。 */
+  async control(label: string, action: string): Promise<ApiResult<ServiceActionResult>> {
+    return request<ServiceActionResult>('/api/v1/services/control', {
+      method: 'POST',
+      body: JSON.stringify({ label, action, confirmsRisk: true }),
+    })
+  },
+}
