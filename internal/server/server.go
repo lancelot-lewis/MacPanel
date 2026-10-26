@@ -82,11 +82,16 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/v1/firewall/status", s.handleFirewallStatus)
 
 	// M2+ 接口：明确返回未实现，避免前端伪装成功。
-	api.HandleFunc("GET /api/v1/firewall/rules", s.handleNotImplemented("防火墙规则编辑"))
-	api.HandleFunc("PUT /api/v1/firewall/rules", s.handleNotImplemented("防火墙规则保存"))
-	api.HandleFunc("POST /api/v1/firewall/apply", s.handleNotImplemented("应用防火墙规则"))
-	api.HandleFunc("POST /api/v1/firewall/confirm", s.handleNotImplemented("确认防火墙配置"))
-	api.HandleFunc("POST /api/v1/firewall/rollback", s.handleNotImplemented("回滚防火墙配置"))
+	// M2：防火墙规则读写
+	api.HandleFunc("GET /api/v1/firewall/rules", s.handleRulesGet)
+	api.HandleFunc("PUT /api/v1/firewall/rules", s.handleRulesSave)
+	api.HandleFunc("POST /api/v1/firewall/preview", s.handleRulesPreview)
+	api.HandleFunc("POST /api/v1/firewall/apply", s.handleRulesApply)
+	api.HandleFunc("POST /api/v1/firewall/confirm", s.handleRulesConfirm)
+	api.HandleFunc("POST /api/v1/firewall/rollback", s.handleRulesRollback)
+	api.HandleFunc("GET /api/v1/firewall/transaction", s.handleRulesTransaction)
+	api.HandleFunc("GET /api/v1/firewall/templates", s.handleRulesTemplates)
+	api.HandleFunc("GET /api/v1/firewall/revisions", s.handleRulesRevisions)
 	api.HandleFunc("GET /api/v1/schedules", s.handleNotImplemented("定时任务"))
 	api.HandleFunc("POST /api/v1/schedules", s.handleNotImplemented("创建定时任务"))
 	api.HandleFunc("POST /api/v1/power/reboot", s.handleNotImplemented("受控重启"))
@@ -159,7 +164,7 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		"features": map[string]any{
 			// 明确的能力声明：前端据此禁用按钮，而不是假装可用。
 			"firewallRead":    true,
-			"firewallWrite":   false,
+			"firewallWrite":   true,
 			"powerControl":    false,
 			"serviceControl":  false,
 			"scheduleControl": false,

@@ -30,9 +30,30 @@ type stubCaller struct {
 	health   model.AgentHealth
 	err      error
 	calls    []string
+
+	// M2：防火墙读写
+	fwErr       error
+	fwMethod    string
+	fwParams    any
+	fwCallCount int
 }
 
-func (s *stubCaller) Call(_ context.Context, method string, _ any, out any) error {
+// handleFirewallStub 处理 M2 方法，返回固定 JSON。
+func (s *stubCaller) handleFirewallStub(method string, params any, out any) error {
+	s.fwMethod = method
+	s.fwParams = params
+	s.fwCallCount++
+	if s.fwErr != nil {
+		return s.fwErr
+	}
+	if raw, ok := out.(*json.RawMessage); ok {
+		*raw = json.RawMessage(`{"stub":true}`)
+		return nil
+	}
+	return nil
+}
+
+func (s *stubCaller) Call(_ context.Context, method string, params any, out any) error {
 	s.calls = append(s.calls, method)
 	if s.err != nil {
 		return s.err
@@ -44,6 +65,15 @@ func (s *stubCaller) Call(_ context.Context, method string, _ any, out any) erro
 		*(out.(*model.NetworkSnapshot)) = s.network
 	case agent.MethodFirewallStatus:
 		*(out.(*model.FirewallStatus)) = s.firewall
+	case agent.MethodFirewallRulesGet,
+		agent.MethodFirewallRulesSet,
+		agent.MethodFirewallPreview,
+		agent.MethodFirewallApply,
+		agent.MethodFirewallConfirm,
+		agent.MethodFirewallRollback,
+		agent.MethodFirewallTransaction,
+		agent.MethodFirewallTemplates:
+		return s.handleFirewallStub(method, params, out)
 	case agent.MethodHealth:
 		*(out.(*model.AgentHealthResponse)) = model.AgentHealthResponse{
 			AgentHealth: s.health,
@@ -288,11 +318,11 @@ func TestOriginGuardAllowsSameOrigin(t *testing.T) {
 // TestNotImplementedReturns501 验证未实现接口返回 501 而非伪造成功。
 func TestNotImplementedReturns501(t *testing.T) {
 	env := newTestEnv(t, false)
+	// M2 已实现防火墙规则读写，因此这里只保留仍未实现的接口。
 	paths := []struct{ method, path string }{
-		{http.MethodPost, "/api/v1/firewall/apply"},
 		{http.MethodPost, "/api/v1/power/reboot"},
 		{http.MethodGet, "/api/v1/services"},
-		{http.MethodPut, "/api/v1/firewall/rules"},
+		{http.MethodPost, "/api/v1/schedules"},
 	}
 	for _, p := range paths {
 		rec := env.do(t, p.method, p.path, nil)
@@ -660,13 +690,16 @@ func TestMetaReportsFeatureFlags(t *testing.T) {
 	data := e.Data.(map[string]any)
 	features := data["features"].(map[string]any)
 
-	for _, k := range []string{"firewallWrite", "powerControl", "serviceControl", "scheduleControl"} {
+	// M2 已实现防火墙写入，其余仍为 false
+	for _, k := range []string{"powerControl", "serviceControl", "scheduleControl"} {
 		if v, ok := features[k].(bool); !ok || v {
-			t.Errorf("M1 阶段 %s 必须为 false", k)
+			t.Errorf("M2 阶段 %s 仍必须为 false", k)
 		}
 	}
-	if v, _ := features["firewallRead"].(bool); !v {
-		t.Error("firewallRead 应为 true")
+	for _, k := range []string{"firewallRead", "firewallWrite"} {
+		if v, _ := features[k].(bool); !v {
+			t.Errorf("M2 阶段 %s 应为 true", k)
+		}
 	}
 }
 
