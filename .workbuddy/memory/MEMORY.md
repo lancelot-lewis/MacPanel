@@ -114,3 +114,59 @@ make test / test-race / test-cover / check
 - M2 PF 核心（规则生成/校验/应用/回滚）：待开始
 - 前置待办：确认 root 下 PF 读取、查明既有 `/etc/pf.anchors/com.homelab.ipv6`
   的来源（**不是本项目创建**）、设计回滚状态机持久化
+
+## M2：PF 防火墙写入（已完成代码，未实机验证）
+
+**最重要的未完成事项**：`pfctl` 真实调用需要 root，本机 `sudo` 不可用，
+因此 M2 的防火墙加载**从未在真实环境执行过**。进入 M3 前必须完成
+`docs/testing.md` 第 4.7 节的实机清单，尤其是：
+「应用阻断 SSH 的规则 → 连接断开 → 60 秒后自动恢复」。
+
+### 架构（改这些代码前必读）
+
+```text
+agent/firewall.go      流程编排：生成 → 校验 → 写文件 → 事务
+  ├── pfrules/        规则集 → PF 文本；纯 Go 双层校验（不依赖 root）
+  ├── firewalld/      状态机、超时回滚、崩溃恢复、pfctl 执行器
+  └── firewallstore/  SQLite 持久化
+```
+
+生成顺序即语义（PF 首个匹配即生效 + quick）：
+`lo0 → ::1 → 出站 → 必需 ICMPv6 → 用户规则 → 默认拒绝`。
+顺序错了白名单会失效。
+
+### 四条不可让步的约束
+
+1. **先落盘再加载**。反过来会在「加载成功但状态没写盘」时崩溃 →
+   机器停在未确认规则上且永不回滚。
+2. **Deadline 存绝对时间**。存剩余秒数会在 Agent 重启后重置，
+   等于无限延长未确认窗口。
+3. **绝不用 `pfctl -d`**。全局关闭防火墙会影响所有服务。
+   回滚 = 清空本应用 anchor（加载 `/dev/null`）。
+4. **不用 `set skip on lo0`**。它是主规则集指令，anchor 内无效。
+   用 `pass quick on lo0 all`。
+
+### pfctl 三层限制（别简化）
+
+`execx.allowedBinaries`（路径）→ `execx.argGuards`（参数）→
+`PFExecutor`（anchor 名 + 文件路径白名单）。
+初版只有路径白名单，意味着 `pfctl -d` 可被发起 —— 等于没限制。
+
+### 本机开发模式
+
+非 root 或 `-dev` 自动 **dry-run**：走通生成/校验/状态机/界面，不触碰系统。
+真实模式需 `sudo ./bin/homelab-manager agent`。
+
+Vite 开发需 `HLM_PUBLIC_HOSTS=localhost:5199` + 代理 `changeOrigin: true`，
+否则写请求被 OriginGuard 403（只有写请求校验 Origin，GET 不受影响）。
+
+### M2 踩过的坑
+
+| 现象 | 根因 |
+| --- | --- |
+| 端口填了仍报「请输入端口」 | naive-ui `required` 对 `NInputNumber` 判定不可靠，改用纯 validator |
+| PF 文本全空、校验报缺全部规则 | `Generate` 忘了 `gen.Content = b.String()` |
+| 规则注释编号全是 `[0]` | `Save` 不返回数据库 ID |
+| Caddy 模板放行 81–442 端口 | 把「80 和 443」误写成 PF 范围 `80:443`（安全缺陷） |
+| 生产代理下写请求全 403 | `PublicHosts` 是死代码，从未从配置注入 |
+| 开发模式所有 API 报 Host 不允许 | Vite `changeOrigin: false` 未改写 Host |
