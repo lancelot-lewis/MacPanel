@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  HomeLab Manager — Web Server 的 launchd 服务定义。
+
+  安装位置：/Library/LaunchDaemons/com.homelab.manager.server.plist
+  运行身份：专用非特权账户 _homelab（安装器创建）
+
+  为什么放在 LaunchDaemons 而不是 LaunchAgents：
+  本服务必须在用户未登录时也运行，否则重启后无人值守的 HomeLab 会失去管理入口。
+
+  注意：本文件是模板，安装脚本会替换 __BINARY_PATH__ 与 __LOG_DIR__。
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.homelab.manager.server</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>__BINARY_PATH__</string>
+		<string>server</string>
+	</array>
+
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HLM_LISTEN_ADDR</key>
+		<string>127.0.0.1:7788</string>
+		<key>HLM_SOCKET_PATH</key>
+		<string>/var/run/homelab-manager/agent.sock</string>
+		<key>HLM_TOKEN_PATH</key>
+		<string>/Library/Application Support/HomeLabManager/ipc.token</string>
+		<key>HLM_DATA_DIR</key>
+		<string>/Library/Application Support/HomeLabManager/data</string>
+		<key>HLM_LOG_DIR</key>
+		<string>__LOG_DIR__</string>
+		<key>HLM_LOG_LEVEL</key>
+		<string>info</string>
+	</dict>
+
+	<key>RunAtLoad</key>
+	<true/>
+
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+
+	<key>StandardOutPath</key>
+	<string>__LOG_DIR__/server.stdout.log</string>
+	<key>StandardErrorPath</key>
+	<string>__LOG_DIR__/server.stderr.log</string>
+
+	<!-- 非特权账户：不能读写 PF、不能操作 launchd 系统域 -->
+	<key>UserName</key>
+	<string>_homelab</string>
+	<key>GroupName</key>
+	<string>_homelab</string>
+
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>

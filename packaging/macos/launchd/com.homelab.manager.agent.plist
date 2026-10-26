@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  HomeLab Manager — Root Agent 的 launchd 服务定义。
+
+  安装位置：/Library/LaunchDaemons/com.homelab.manager.agent.plist
+  运行身份：root（需要读取 /dev/pf、未来需要执行 pfctl 与 launchctl）
+  启动时机：系统启动即运行，不依赖用户登录
+
+  注意：本文件是模板，安装脚本会用实际路径替换 __BINARY_PATH__ 与 __LOG_DIR__。
+  未经实机验证前，不要把它设为开机强制启用。
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.homelab.manager.agent</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>__BINARY_PATH__</string>
+		<string>agent</string>
+	</array>
+
+	<!-- 环境：显式给出全部路径，避免继承不确定的环境变量 -->
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HLM_SOCKET_PATH</key>
+		<string>/var/run/homelab-manager/agent.sock</string>
+		<key>HLM_TOKEN_PATH</key>
+		<string>/Library/Application Support/HomeLabManager/ipc.token</string>
+		<key>HLM_DATA_DIR</key>
+		<string>/Library/Application Support/HomeLabManager/data</string>
+		<key>HLM_LOG_DIR</key>
+		<string>__LOG_DIR__</string>
+		<key>HLM_ANCHOR_PATH</key>
+		<string>/etc/pf.anchors/com.homelab.manager.ipv6</string>
+		<key>HLM_LOG_LEVEL</key>
+		<string>info</string>
+	</dict>
+
+	<key>RunAtLoad</key>
+	<true/>
+
+	<!-- 异常退出后重启；限流避免崩溃循环拖垮系统 -->
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+
+	<!-- 日志 -->
+	<key>StandardOutPath</key>
+	<string>__LOG_DIR__/agent.stdout.log</string>
+	<key>StandardErrorPath</key>
+	<string>__LOG_DIR__/agent.stderr.log</string>
+
+	<!-- 权限：以 root 运行 -->
+	<key>UserName</key>
+	<string>root</string>
+	<key>GroupName</key>
+	<string>wheel</string>
+
+	<!-- 资源限制：防止异常情况下耗尽系统 -->
+	<key>HardResourceLimits</key>
+	<dict>
+		<key>NumberOfFiles</key>
+		<integer>256</integer>
+	</dict>
+	<key>SoftResourceLimits</key>
+	<dict>
+		<key>NumberOfFiles</key>
+		<integer>128</integer>
+	</dict>
+
+	<!-- 进程类型：后台常驻 -->
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>
