@@ -110,6 +110,11 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("DELETE /api/v1/services/register", s.handleServiceUnregister)
 	api.HandleFunc("POST /api/v1/services/control", s.handleServiceControl)
 
+	// M6：网络诊断与容器
+	api.HandleFunc("GET /api/v1/diagnostics", s.handleDiagnostics)
+	api.HandleFunc("POST /api/v1/diagnostics/tcp", s.handleTCPProbe)
+	api.HandleFunc("GET /api/v1/orbstack/containers", s.handleOrbStackContainers)
+
 	api.HandleFunc("GET /api/v1/audit", s.handleAuditList)
 	api.HandleFunc("GET /api/v1/meta", s.handleMeta)
 	api.HandleFunc("POST /api/v1/auth/logout", s.handleLogout)

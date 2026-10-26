@@ -82,6 +82,10 @@ func TestMethodsAreWhitelisted(t *testing.T) {
 		MethodServicesRegister:   true,
 		MethodServicesUnregister: true,
 		MethodServicesControl:    true,
+		// M6 网络诊断与容器
+		MethodDiagnosticsSnapshot: true,
+		MethodDiagnosticsTCPProbe: true,
+		MethodOrbStackContainers:  true,
 	}
 	for _, m := range methods {
 		if !allowed[m] {

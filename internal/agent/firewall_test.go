@@ -116,6 +116,15 @@ func TestAllMethodsIncludesFirewall(t *testing.T) {
 		}
 	}
 
+	// M6 的 3 个
+	for _, m := range []string{
+		MethodDiagnosticsSnapshot, MethodDiagnosticsTCPProbe, MethodOrbStackContainers,
+	} {
+		if !seen[m] {
+			t.Errorf("缺少 M6 方法: %s", m)
+		}
+	}
+
 	// 数量断言用动态值而不是硬编码：每加一个里程碑都要改数字，
 	// 只会让人习惯性地把它调大，反而失去「有没有意外新增方法」的意义。
 	// 真正的防线是上面的逐项核对与下面的危险名单。

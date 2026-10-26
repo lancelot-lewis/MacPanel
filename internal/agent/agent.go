@@ -39,6 +39,8 @@ type Agent struct {
 	power *PowerDeps
 	// services 是 M4 启动项管理依赖。为 nil 时相关方法返回「未实现」。
 	services *ServiceDeps
+	// diag 是 M6 网络诊断与容器能力依赖。
+	diag *DiagDeps
 }
 
 // Options 构造参数。
@@ -104,6 +106,10 @@ func AllMethods() []string {
 		MethodServicesRegister,
 		MethodServicesUnregister,
 		MethodServicesControl,
+		// M6：网络诊断与容器
+		MethodDiagnosticsSnapshot,
+		MethodDiagnosticsTCPProbe,
+		MethodOrbStackContainers,
 	}
 }
 
@@ -130,6 +136,9 @@ func (a *Agent) RegisterAll(srv *ipc.Server) {
 
 	// M4 启动项管理。
 	a.registerServices(srv)
+
+	// M6 网络诊断与容器。
+	a.registerDiag(srv)
 }
 
 // Methods 返回已实现的方法名。

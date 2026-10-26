@@ -296,6 +296,7 @@ func runAgent(args []string) error {
 	var fwWiring firewallWiring
 	var pwWiring powerWiring
 	var svWiring serviceWiring
+	var dgWiring diagWiring
 	if db, derr := database.Open(context.Background(), cfg.DatabasePath()); derr != nil {
 		log.Warn("防火墙与电源能力不可用：数据库打开失败", "error", derr)
 	} else {
@@ -323,6 +324,13 @@ func runAgent(args []string) error {
 		} else {
 			log.Warn("启动项管理能力未启用", "reason", svWiring.disabledWhy)
 		}
+	}
+
+	// 诊断能力不依赖数据库，放在 db 分支之外：即使数据库打不开，
+	// 网络诊断仍应可用（它恰恰是排查环境问题的工具）。
+	dgWiring = wireDiag(log)
+	if dgWiring.enabled {
+		ag.SetDiagDeps(dgWiring.deps)
 	}
 
 	ag.RegisterAll(srv)

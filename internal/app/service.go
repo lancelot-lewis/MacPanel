@@ -291,3 +291,32 @@ func (s *Service) ServiceControl(ctx context.Context, params any) (json.RawMessa
 	}
 	return out, nil
 }
+
+// ---- M6：网络诊断与容器 ----
+
+// DiagnosticsSnapshot 采集路由表与监听端口。
+func (s *Service) DiagnosticsSnapshot(ctx context.Context) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodDiagnosticsSnapshot, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// TCPProbe 检测 TCP 连通性。
+func (s *Service) TCPProbe(ctx context.Context, params any) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodDiagnosticsTCPProbe, params, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// OrbStackContainers 列出容器。
+func (s *Service) OrbStackContainers(ctx context.Context) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodOrbStackContainers, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
