@@ -8,6 +8,7 @@ import { installNaive } from './theme/components'
 
 import OverviewPage from './pages/OverviewPage.vue'
 import FirewallPage from './pages/FirewallPage.vue'
+import PowerPage from './pages/PowerPage.vue'
 import NetworkPage from './pages/NetworkPage.vue'
 import AuditPage from './pages/AuditPage.vue'
 import SettingsPage from './pages/SettingsPage.vue'
@@ -18,6 +19,7 @@ const router = createRouter({
   routes: [
     { path: '/', name: 'overview', component: OverviewPage, meta: { title: '概览' } },
     { path: '/firewall', name: 'firewall', component: FirewallPage, meta: { title: 'IPv6 防火墙' } },
+    { path: '/power', name: 'power', component: PowerPage, meta: { title: '电源与计划任务' } },
     { path: '/network', name: 'network', component: NetworkPage, meta: { title: '网络诊断' } },
     { path: '/audit', name: 'audit', component: AuditPage, meta: { title: '操作审计' } },
     { path: '/settings', name: 'settings', component: SettingsPage, meta: { title: '设置' } },

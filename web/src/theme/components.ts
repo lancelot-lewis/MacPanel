@@ -49,6 +49,7 @@ import {
   NSwitch,
   NTable,
   NTag,
+  NTimePicker,
   NTooltip,
 } from 'naive-ui'
 
@@ -91,6 +92,7 @@ const registry: Record<string, Component> = {
   NCheckbox,
   NCheckboxGroup,
   NSwitch,
+  NTimePicker,
 
   // 反馈
   NAlert,

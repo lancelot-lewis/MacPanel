@@ -191,3 +191,76 @@ export const firewallApi = {
     return request<{ items: FirewallTemplate[] }>('/api/v1/firewall/templates')
   },
 }
+
+// ---- M3：电源与计划任务 ----
+
+import type {
+  PowerStatus,
+  ScheduledTask,
+  SyncResult,
+  TaskExecution,
+} from './power'
+import { toTaskPayload } from './power'
+
+export const powerApi = {
+  async status(): Promise<ApiResult<PowerStatus>> {
+    return request<PowerStatus>('/api/v1/power/status')
+  },
+
+  /**
+   * 排定重启。必须显式带 confirmsRisk —— 后端会校验，
+   * 缺失时直接 400 且不触达 Agent。
+   */
+  async reboot(delaySeconds: number, reason: string): Promise<ApiResult<PowerStatus>> {
+    return request<PowerStatus>('/api/v1/power/reboot', {
+      method: 'POST',
+      body: JSON.stringify({ delaySeconds, reason, confirmsRisk: true }),
+    })
+  },
+
+  async cancelReboot(): Promise<ApiResult<PowerStatus>> {
+    return request<PowerStatus>('/api/v1/power/cancel', { method: 'POST', body: '{}' })
+  },
+}
+
+export const scheduleApi = {
+  async list(): Promise<ApiResult<{ items: ScheduledTask[] }>> {
+    return request<{ items: ScheduledTask[] }>('/api/v1/schedules')
+  },
+
+  async create(task: ScheduledTask): Promise<ApiResult<ScheduledTask>> {
+    return request<ScheduledTask>('/api/v1/schedules', {
+      method: 'POST',
+      body: JSON.stringify(toTaskPayload(task)),
+    })
+  },
+
+  async update(task: ScheduledTask): Promise<ApiResult<ScheduledTask>> {
+    return request<ScheduledTask>(`/api/v1/schedules/${task.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(toTaskPayload(task)),
+    })
+  },
+
+  async remove(id: number): Promise<ApiResult<{ ok: boolean }>> {
+    return request<{ ok: boolean }>(`/api/v1/schedules/${id}`, { method: 'DELETE' })
+  },
+
+  async executions(taskId = 0, limit = 50): Promise<ApiResult<{ items: TaskExecution[] }>> {
+    const q = new URLSearchParams({ limit: String(limit) })
+    if (taskId > 0) q.set('taskId', String(taskId))
+    return request<{ items: TaskExecution[] }>(`/api/v1/schedules/executions?${q}`)
+  },
+
+  /** 立即执行一次。同样需要风险确认。 */
+  async runNow(id: number): Promise<ApiResult<TaskExecution>> {
+    return request<TaskExecution>(`/api/v1/schedules/${id}/run`, {
+      method: 'POST',
+      body: JSON.stringify({ confirmsRisk: true }),
+    })
+  },
+
+  async sync(): Promise<ApiResult<SyncResult>> {
+    return request<SyncResult>('/api/v1/schedules/sync', { method: 'POST', body: '{}' })
+  },
+}
