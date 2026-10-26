@@ -15,8 +15,9 @@ macOS HomeLab 管理面板。**ADR-001 已决策：Go + Vue 3 Web-first，
 
 必须遵守的约定：
 
-- **按需注册，不要 `app.use(naive)`**：全量注册产物 gzip 442 kB，
-  按需后 243 kB（naive 187 + vue 42 + 业务 19）。注册表在
+- **按需注册，不要 `app.use(naive)`**：全量注册产物 gzip 442 kB（历史测量），
+  按需后约 295 kB（naive 212 + vue 42 + 业务 37 + CSS 4，随构建浮动）。
+  注册表在
   `web/src/theme/components.ts`，**新增组件必须补一行**。
 - **`theme/` 是组件库唯一入口**：业务页面只用 CSS 变量
   （`var(--color-*)`）或组件的 `type` 属性，不直接 import 主题变量。
@@ -110,10 +111,8 @@ make test / test-race / test-cover / check
 
 ## 里程碑状态
 
-- M0 文档、M1 只读面板：**已完成**（见 `docs/m1-acceptance.md`）
-- M2 PF 核心（规则生成/校验/应用/回滚）：待开始
-- 前置待办：确认 root 下 PF 读取、查明既有 `/etc/pf.anchors/com.homelab.ipv6`
-  的来源（**不是本项目创建**）、设计回滚状态机持久化
+见文末「M5 收尾」一节。所有功能里程碑（M0–M4、M6）代码已完成，
+M5 打包链路已打通并通过静态校验；**干净系统安装与 PF/重启的实机验证仍未做**。
 
 ## M2：PF 防火墙写入（已完成代码，未实机验证）
 
@@ -173,8 +172,8 @@ Vite 开发需 `HLM_PUBLIC_HOSTS=localhost:5199` + 代理 `changeOrigin: true`�
 
 ## M3/M4/M6：功能已全部完成（2026-10-26 晚）
 
-**范围**：M0–M4 + M6 代码完成，M5（安装验证）与实机验证未做。
-368 个测试通过，合计覆盖率 54.5%。
+**范围**：M0–M4 + M6 代码完成。M5 打包链路已通（见文末），实机验证未做。
+377 个测试通过，合计覆盖率 53.2%。
 
 ### 分层地图（找代码先看这里）
 
@@ -224,3 +223,42 @@ M6  darwin/diag（TCP+路由+监听） / orbstack（Docker Socket 只读）
 `-dev` 下：plist 写到 `.dev/launchd`（绝对路径）、`fake.Power` 只记录不执行、
 Service Controller **仍装配**（但非 root 时能力受限）。
 `task-run --dev` 强制用 fake power——这个开关是硬的，不依赖权限判断。
+
+## M5 收尾：打包 + 防火墙本地救援（2026-10-26 晚）
+
+### 防火墙救援 CLI（新增，别让它退化成「走 IPC」）
+
+`homelab-manager firewall {status,rollback,unload}`（见 `cmd/.../firewall_cli.go`）
+**刻意不连 Server 与 Unix Socket**：规则一旦挡住 SSH，面板那四跳本身就断了。
+它直连 `firewalld.Manager`，所以 pfctl 三层限制一条不少。非 root 自动 dry-run。
+
+`rollback` 与 `unload` 是两个语义，别合并：前者取消**当前事务**（idle 时报 conflict），
+后者只回答「让本应用不再持有任何 PF 规则」。unload 必须存在的原因是
+**倒计时定时器活在 Agent 进程里**——Agent 被杀后超时不会自动回滚。
+
+### 打包命令
+
+```bash
+make pkg && make verify-pkg && make dmg     # 都不需要 root
+sudo installer -pkg HomeLabManager-<v>.pkg -target /
+sudo homelab-manager-uninstall [--yes|--purge]   # 随包安装
+```
+
+包的事实：二进制 + 卸载脚本在 `/usr/local/bin`（100755）、plist 在
+`/Library/LaunchDaemons`（100644）；数据目录**不进 payload**（否则升级覆盖用户数据），
+由 postinstall 建立 root:wheel 0750 / data 为 _homelab 0700。
+
+### 打包环境陷阱（本机实测）
+
+| 陷阱 | 结论 |
+| --- | --- |
+| `com.apple.provenance` | **删不掉**（xattr -c/-d/removexattr 都返回成功但仍在）。pkgbuild 因此给每条记录加 `._xxx` AppleDouble；无害，卸载会清理 |
+| macOS bash 是 3.2 | 不支持 `arr[-1]`，用 `tail -1` |
+| `pkgutil --expand` | 目标必须不存在且不创建父目录；distribution 包展开一次就够，再 expand 会失败 |
+| `lsbom -f` | 格式 `path<TAB>八进制mode<TAB>uid/gid<TAB>size`；`-pf` 只有路径 |
+| `hdiutil` | macOS 27 起 deprecated，将来迁 `diskutil image create` |
+
+### 待办（必须真机 root）
+
+干净系统安装 → 升级与备份恢复 → 卸载 → PF 真实加载 → 真实重启与 launchd 触发。
+清单见 `docs/m5-acceptance.md` 第 3 节。**no root 环境下的任何静态检查都不能替代它。**
