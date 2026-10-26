@@ -1,0 +1,21 @@
+# 构建产物
+/bin/
+/dist/
+.dev/
+*.test
+*.out
+
+# 前端
+web/node_modules/
+web/dist/
+web/.vite/
+
+# 本地环境
+.DS_Store
+*.local
+.env
+
+# 打包中间产物
+packaging/**/build/
+packaging/**/*.pkg
+packaging/**/*.dmg
