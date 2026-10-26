@@ -14,6 +14,23 @@ macOS HomeLab 管理面板。单个 Go 二进制 + 内嵌 Vue 3 前端，原生�
 本产品本质是后台管理服务——PF 规则、计划重启、launchd 服务必须在浏览器关闭、
 用户注销后继续工作，桌面壳无法替代独立的 Root LaunchDaemon。
 
+### 前端为何选 Naive UI
+
+M2 的核心是「规则编辑器」——端口范围、CIDR、协议、多接口选择、动态校验，
+以及「应用 → 60 秒倒计时 → 确认/回滚」的弹窗流程。手写这些表单与状态机
+容易在细节上出错，因此引入组件库换取表单校验、数据表格、弹窗与键盘可达性。
+
+代价与取舍：
+
+- **体积**：按需注册后 gzip 约 243 kB（naive 187 + vue 42 + 业务 19），
+  是纯手写方案（52 kB）的 4.7 倍。这是引入组件库的固有成本。
+- **不做全量注册**：`app.use(naive)` 会让产物涨到 gzip 442 kB，
+  因此改为具名导入 + 显式注册表（`web/src/theme/components.ts`）。
+- **视觉不跟随默认风格**：通过 `themeOverrides` 对齐既有的极简灰阶，
+  保留「macOS 系统设置页」的克制感。换库时只需重写 `web/src/theme/`。
+- **数据语义仍由自有组件承担**：`StatBlock` / `Callout` 保留自研，
+  因为组件库没有「不可用 ≠ 值为 0」的表达能力（见下节「数据质量原则」）。
+
 ## 架构一览
 
 ```text
@@ -113,8 +130,9 @@ make dmg             # 构建 DMG（不挂载）
 │   │   ├── darwin/               macOS 只读采集实现
 │   │   └── fake/                 模拟实现（开发/测试）
 │   └── version/                  构建期注入的版本信息
-├── web/                          Vue 3 + TypeScript + Vite + Tailwind v4
-│   ├── src/{api,components,layouts,lib,pages,router,stores}
+├── web/                          Vue 3 + TypeScript + Vite + Naive UI + Tailwind v4
+│   ├── src/{api,components,layouts,lib,pages,stores}
+│   ├── src/theme/                组件库主题覆盖、明暗模式、按需注册的组件表
 │   ├── dist/                     构建产物（被 go:embed 打包）
 │   └── embed.go                  前端资源嵌入
 ├── packaging/macos/              launchd 模板、PKG/DMG 构建脚本
@@ -158,7 +176,11 @@ make dmg             # 构建 DMG（不挂载）
    接近「活动监视器」但不等价，页面已标注。
 4. **APFS 容量**：根卷与数据卷共享容器，数值可能相同，属系统真实语义。
 5. **安装包未签名**：Gatekeeper 会拦截，需手动放行或自行签名。
-6. **前端无自动化测试**：仅有 TypeScript 类型检查 + 脚本化浏览器验证。
+6. **前端无自动化测试**：仅有 TypeScript 类型检查 + 脚本化浏览器验证
+   （对比度、溢出、交互流程均已脚本化检查，见 `docs/testing.md`）。
+7. **组件库体积**：Naive UI 按需注册后仍占 gzip 约 187 kB，是整包的主要体积来源。
+8. **组件库需手动登记**：新增 Naive UI 组件必须在 `web/src/theme/components.ts`
+   补一行，否则模板中会解析失败（控制台 `Failed to resolve component`）。
 
 ## 文档
 

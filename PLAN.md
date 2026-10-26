@@ -54,7 +54,7 @@
 | 领域 | 选型 | 说明 |
 | --- | --- | --- |
 | 后端 | Go（开发时选定稳定版本） | `net/http`，`embed` 前端资源；不依赖桌面框架 |
-| 前端 | Vue 3 + TypeScript + Vite | Tailwind CSS、shadcn-vue；Web-first 响应式布局 |
+| 前端 | Vue 3 + TypeScript + Vite | Naive UI（按需注册）+ Tailwind CSS v4；Web-first 响应式布局 |
 | 存储 | SQLite（WAL） | 数据迁移、备份、定期清理 |
 | 特权边界 | Root Agent + Unix Domain Socket | 固定 RPC 操作，核验对端身份和请求参数 |
 | 服务管理 | launchd | Server 与 Agent 分别运行，分别配置身份和权限 |

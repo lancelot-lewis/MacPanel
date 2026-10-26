@@ -69,6 +69,42 @@ cmd/homelab-manager
 - HTTP handler 不直接执行系统命令，全部经由 `app.Service → ipc.Client → Agent`。
 - 外部命令统一走 `internal/platform/execx`，强制白名单 + 超时 + 输出上限。
 
+### 前端分层
+
+```text
+web/src
+├── api/          HTTP 客户端与后端类型定义（与 internal/model 一一对应）
+├── theme/        ★ 组件库主题覆盖、明暗模式、按需注册的组件表
+├── stores/       全局状态（认证、元信息）
+├── lib/          格式化工具、useResource（加载/错误/轮询三态）
+├── components/   自有语义组件（StatBlock / Callout / PanelCard）
+├── layouts/      AppShell（侧栏 + 顶栏 + 内容区）
+└── pages/        5 个页面
+```
+
+分层约束：
+
+- **`theme/` 是组件库的唯一入口**。业务页面不直接 import 主题变量，
+  只使用 CSS 变量（`var(--color-*)`）或 Naive UI 组件的 `type` 属性。
+  这样换组件库时只需重写 `theme/`，业务代码不动。
+- **明暗模式只有一个真源**（`theme/mode.ts`）。它同时更新 `html.dark` 类
+  和 Naive UI 的 `theme` 属性。如果两套各自判断 `prefers-color-scheme`，
+  会出现「卡片深色、页面底色浅色」的撕裂。
+- **`components/` 里的三个自有组件不替换为组件库组件**：
+  `StatBlock` 表达「不可用 ≠ 值为 0」，`Callout` 承载阶段/能力边界标注，
+  这些语义组件库没有。它们内部仍用 Naive UI 原语（NTag/NAlert）保证视觉一致。
+
+#### 组件库踩坑记录（换库或升级时必读）
+
+| 问题 | 原因 | 处理 |
+| --- | --- | --- |
+| 页面全白且不报错 | `NCard.name === "Card"`，用 `c.name` 注册成 `<Card>`，模板写的是 `<NCard>` | 显式维护 `[注册名, 组件]` 映射表 |
+| 产物 1584 kB | `app.use(naive)` 全量注册，27 个组件之外全部进包 | 具名导入 + 显式注册表，降到 243 kB(gzip) |
+| 深色模式底色撕裂 | CSS 变量与组件库各自判断系统偏好 | 单一响应式来源同时驱动两者 |
+| 大量对比度不达标 | 组件库把语义色同时用作文字色和 12% 透明底 | 在 `themeOverrides` 里为 Tag 指定压深后的 `textColor*` |
+| `type="primary"` 的 Tag 覆盖无效 | 该类型用 `primaryColor`，不受 `Tag.textColor` 影响 | 改用 `type="info"`（对应 `textColorInfo`） |
+| 移动端侧栏不隐藏 | `NLayoutSider` 自身是 flex 元素，`hidden/lg:block` 被组件样式覆盖 | 用外层 `div` 控制显隐 |
+
 ## 4. IPC 协议
 
 ### 帧格式
@@ -187,7 +223,8 @@ CHECK (port_from IS NULL OR port_to IS NULL OR port_from <= port_to)
   与「活动监视器」接近但不等价；页面已标注口径。
 - APFS 上根卷与数据卷共享容器，容量数值可能相同，属系统真实语义。
 - 无指标历史聚合（`metric_samples` 已建表，M3 启用）。
-- 前端无自动化测试（仅类型检查 + 手工/脚本化浏览器验证）。
+- 前端无自动化测试（仅类型检查 + 脚本化浏览器验证；覆盖对比度、溢出、交互流程）。
+- 前端包体积以组件库为主：gzip 约 243 kB，其中 Naive UI 占 187 kB。
 
 ## 9. 后续里程碑的架构预留
 
