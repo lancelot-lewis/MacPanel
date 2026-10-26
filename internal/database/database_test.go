@@ -22,8 +22,8 @@ func openTestDB(t *testing.T) *DB {
 // TestMigrateCreatesSchema 验证迁移创建了所有预期表。
 func TestMigrateCreatesSchema(t *testing.T) {
 	db := openTestDB(t)
-	if got := db.SchemaVersion(); got != 1 {
-		t.Fatalf("schema 版本应为 1，实际 %d", got)
+	if got := db.SchemaVersion(); got != 2 {
+		t.Fatalf("schema 版本应为 2，实际 %d", got)
 	}
 
 	expected := []string{
@@ -31,6 +31,8 @@ func TestMigrateCreatesSchema(t *testing.T) {
 		"scheduled_tasks", "task_executions", "managed_services",
 		"audit_logs", "metric_samples", "auth_sessions", "auth_attempts",
 		"schema_migrations",
+		// v2 新增
+		"firewall_deny_interfaces",
 	}
 	for _, table := range expected {
 		var name string
@@ -39,6 +41,84 @@ func TestMigrateCreatesSchema(t *testing.T) {
 		if err != nil {
 			t.Errorf("表 %s 未创建: %v", table, err)
 		}
+	}
+}
+
+// TestMigrateV2AddsColumns 验证 v2 增加的列存在且默认值合理。
+func TestMigrateV2AddsColumns(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+
+	// firewall_revisions 的两列
+	now := FormatTime(Now())
+	res, err := db.SQL().ExecContext(ctx,
+		`INSERT INTO firewall_revisions (status, content, content_hash, created_at)
+		 VALUES ('candidate', 'x', 'h', ?)`, now)
+	if err != nil {
+		t.Fatalf("插入版本记录失败: %v", err)
+	}
+	id, _ := res.LastInsertId()
+
+	var genVer string
+	var enforced int
+	if err := db.SQL().QueryRowContext(ctx,
+		`SELECT generator_version, enforced_count FROM firewall_revisions WHERE id = ?`, id).
+		Scan(&genVer, &enforced); err != nil {
+		t.Fatalf("读取新增列失败: %v", err)
+	}
+	if genVer != "" {
+		t.Errorf("generator_version 默认应为空串，实际 %q", genVer)
+	}
+	if enforced != 0 {
+		t.Errorf("enforced_count 默认应为 0，实际 %d", enforced)
+	}
+
+	// firewall_rules 的 builtin_template 列
+	if _, err := db.SQL().ExecContext(ctx,
+		`INSERT INTO firewall_rules
+		 (name, position, action, direction, protocol, port_from, port_to, created_at, updated_at)
+		 VALUES ('t', 0, 'pass', 'in', 'tcp', 443, 443, ?, ?)`, now, now); err != nil {
+		t.Fatalf("插入规则失败: %v", err)
+	}
+	var tpl string
+	if err := db.SQL().QueryRowContext(ctx,
+		`SELECT builtin_template FROM firewall_rules LIMIT 1`).Scan(&tpl); err != nil {
+		t.Fatalf("读取 builtin_template 失败: %v", err)
+	}
+	if tpl != "" {
+		t.Errorf("builtin_template 默认应为空串，实际 %q", tpl)
+	}
+}
+
+// TestDenyInterfacesConstraints 验证默认拒绝接口表的约束。
+func TestDenyInterfacesConstraints(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	now := FormatTime(Now())
+
+	// 合法接口
+	if _, err := db.SQL().ExecContext(ctx,
+		`INSERT INTO firewall_deny_interfaces (interface, created_at) VALUES ('en0', ?)`, now); err != nil {
+		t.Fatalf("合法接口应插入成功: %v", err)
+	}
+
+	// 主键重复
+	if _, err := db.SQL().ExecContext(ctx,
+		`INSERT INTO firewall_deny_interfaces (interface, created_at) VALUES ('en0', ?)`, now); err == nil {
+		t.Error("重复接口应被主键拒绝")
+	}
+
+	// 空接口名
+	if _, err := db.SQL().ExecContext(ctx,
+		`INSERT INTO firewall_deny_interfaces (interface, created_at) VALUES ('', ?)`, now); err == nil {
+		t.Error("空接口名应被 CHECK 拒绝")
+	}
+
+	// 过长接口名（>15）
+	long := "abcdefghijklmnopqrstuvwxyz"
+	if _, err := db.SQL().ExecContext(ctx,
+		`INSERT INTO firewall_deny_interfaces (interface, created_at) VALUES (?, ?)`, long, now); err == nil {
+		t.Error("过长接口名应被 CHECK 拒绝")
 	}
 }
 

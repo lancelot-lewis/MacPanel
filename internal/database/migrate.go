@@ -21,6 +21,11 @@ var migrations = []migration{
 		Description: "初始 schema：设置、防火墙规则、定时任务、审计、指标、会话",
 		Up:          migrateV1,
 	},
+	{
+		Version:     2,
+		Description: "M2：规则集会话语义（默认拒绝接口）与规则版本快照内容",
+		Up:          migrateV2,
+	},
 }
 
 const createSchemaMigrations = `
@@ -207,6 +212,46 @@ func migrateV1(ctx context.Context, tx *sql.Tx) error {
 			success     INTEGER NOT NULL CHECK (success IN (0,1))
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_attempts_addr ON auth_attempts(remote_addr, at DESC)`,
+	}
+
+	for _, s := range stmts {
+		if _, err := tx.ExecContext(ctx, s); err != nil {
+			return fmt.Errorf("执行 DDL 失败: %w\nSQL: %s", err, s)
+		}
+	}
+	return nil
+}
+
+// migrateV2 为 M2 增加规则集级别的设置与版本快照内容。
+//
+// 设计要点：
+//   - 「默认拒绝接口」属于规则集级设置（不是单条规则），
+//     单独存一张表比塞进 settings 的 JSON 更便于校验与查询；
+//   - firewall_revisions 增加 content 相关字段后，可支持「回滚到上一份可用配置」
+//     时把内容写回 anchor 文件，而不只是清空 anchor。
+func migrateV2(ctx context.Context, tx *sql.Tx) error {
+	stmts := []string{
+		// 规则集级设置：需要实施默认拒绝入站的接口白名单。
+		// 用独立表而不是 settings 的 JSON：便于加 CHECK 约束与唯一索引。
+		`CREATE TABLE IF NOT EXISTS firewall_deny_interfaces (
+			interface  TEXT PRIMARY KEY,
+			created_at TEXT NOT NULL,
+			CHECK (length(interface) BETWEEN 1 AND 15)
+		)`,
+
+		// 规则版本内容：支持「恢复上一份已知可用配置」。
+		// content 已在 v1 建好，这里补充生成器版本与强制规则数量，
+		// 便于诊断「这份配置是哪个版本的生成器产出的」。
+		`ALTER TABLE firewall_revisions ADD COLUMN generator_version TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE firewall_revisions ADD COLUMN enforced_count INTEGER NOT NULL DEFAULT 0`,
+
+		// 记录每条规则所属的模板来源（便于界面标注「来自模板」）。
+		// v1 的 firewall_rules 没有这一列。
+		`ALTER TABLE firewall_rules ADD COLUMN builtin_template TEXT NOT NULL DEFAULT ''`,
+
+		// 规则唯一性辅助：同名规则容易混淆，加索引便于提示（不强制唯一，
+		// 因为用户可能确实需要两条同名但不同端口的规则）。
+		`CREATE INDEX IF NOT EXISTS idx_firewall_rules_enabled ON firewall_rules(enabled, position)`,
 	}
 
 	for _, s := range stmts {
