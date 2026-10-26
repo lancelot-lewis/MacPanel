@@ -15,6 +15,8 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -33,6 +35,9 @@ var allowedBinaries = map[string]string{
 	"/usr/bin/sw_vers":       "读取 macOS 版本",
 	"/usr/sbin/networksetup": "查询网络硬件端口（只读列表）",
 	"/usr/bin/vm_stat":       "读取虚拟内存统计（只读）",
+	"/bin/launchctl":         "launchd 服务查询与受管启停（参数级白名单见 launchctlGuard）",
+	"/sbin/shutdown":         "受控重启（参数级白名单见 shutdownGuard）",
+	"/usr/bin/plutil":        "校验 plist 语法（仅 -lint，只解析不安装）",
 }
 
 // argGuards 是「参数级」白名单，只对危险命令生效。
@@ -49,7 +54,157 @@ var allowedBinaries = map[string]string{
 //
 // 一旦 pfctl 进白名单，上述调用就都能发起。因此在参数层面再做一次限制。
 var argGuards = map[string]func(args []string) error{
-	"/sbin/pfctl": pfctlGuard,
+	"/sbin/pfctl":     pfctlGuard,
+	"/bin/launchctl":  launchctlGuard,
+	"/sbin/shutdown":  shutdownGuard,
+	"/usr/bin/plutil": plutilGuard,
+}
+
+// launchctlGuard 限制 launchctl 的子命令集合。
+//
+// launchctl 是本项目里权限最高的工具：bootstrap 一个 plist 等于以 root
+// 执行其中 ProgramArguments 指定的任意程序。因此这里只放行本应用真正
+// 需要的子命令，并且**要求目标必须是 system 域**（不允许操作 user/GUI 域，
+// 那属于用户会话，本应用不该介入）。
+//
+// 注意：这层只做「形态」限制。真正的边界在调用方（launchd 包）——
+// 它把 plist 路径限定在 /Library/LaunchDaemons/com.homelab.manager.*，
+// 把 label 限定在本应用前缀。两层缺一不可：只靠参数形态挡不住
+// "bootstrap system /tmp/evil.plist"。
+func launchctlGuard(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("launchctl 必须带子命令")
+	}
+
+	// 明确禁止的子命令：它们要么能加载任意程序，要么会改变全局状态。
+	forbidden := map[string]string{
+		"submit":     "以 root 提交任意命令执行（任意代码执行）",
+		"load":       "旧式加载接口，参数语义宽松",
+		"unload":     "旧式卸载接口，参数语义宽松",
+		"reboot":     "重启用户会话，不在本应用职责内",
+		"shutdown":   "关机，应通过受控重启接口",
+		"halt":       "停机，不在本应用职责内",
+		"setenv":     "修改 launchd 环境变量会影响所有服务",
+		"unsetenv":   "修改 launchd 环境变量会影响所有服务",
+		"config":     "修改 launchd 全局配置",
+		"attach":     "调试用途",
+		"managerpid": "调试用途",
+	}
+	sub := args[0]
+	if reason, bad := forbidden[sub]; bad {
+		return fmt.Errorf("launchctl %s 被禁止：%s", sub, reason)
+	}
+
+	switch sub {
+	case "list":
+		// `launchctl list` 列出全部服务；带 label 时查询单个。
+		// 两者都是只读。
+		if len(args) > 2 {
+			return fmt.Errorf("launchctl list 最多接受一个 label 参数")
+		}
+		return nil
+
+	case "print":
+		// 必须指定 target，且只允许 system 域或 system/<label>。
+		if len(args) < 2 {
+			return fmt.Errorf("launchctl print 需要指定目标")
+		}
+		return requireSystemDomain(args[1])
+
+	case "bootstrap":
+		// bootstrap <domain> <plist-path>
+		// 只允许 system 域：用户域属于交互会话，不在本应用职责内。
+		if len(args) < 3 {
+			return fmt.Errorf("launchctl bootstrap 需要 <domain> <plist>")
+		}
+		if args[1] != "system" {
+			return fmt.Errorf("launchctl bootstrap 只允许 system 域，实际 %q", args[1])
+		}
+		if !strings.HasSuffix(args[2], ".plist") {
+			return fmt.Errorf("launchctl bootstrap 的目标必须是 plist 文件")
+		}
+		return nil
+
+	case "bootout", "kickstart", "enable", "disable":
+		// bootout 接受 system/<label> 或 domain + plist；统一要求 system 域。
+		if len(args) < 2 {
+			return fmt.Errorf("launchctl %s 需要指定目标", sub)
+		}
+		return requireSystemDomain(args[1])
+
+	default:
+		return fmt.Errorf("launchctl 子命令 %q 不在允许范围内", sub)
+	}
+}
+
+// requireSystemDomain 要求 target 形如 system 或 system/<label>。
+//
+// 拒绝 user/<uid>/... 与 gui/<uid>/...：那些是用户会话域，
+// 本应用以 root 运行，没有理由操作他人会话。
+func requireSystemDomain(target string) error {
+	if target == "system" {
+		return nil
+	}
+	if strings.HasPrefix(target, "system/") {
+		label := strings.TrimPrefix(target, "system/")
+		if label == "" {
+			return fmt.Errorf("launchctl 目标缺少 label")
+		}
+		return nil
+	}
+	return fmt.Errorf("launchctl 目标必须是 system 域，实际 %q", target)
+}
+
+// plutilGuard 限制 plutil 只做语法校验。
+//
+// plutil 也能改写 plist 文件（-replace、-insert 等），那是本应用
+// 不需要的能力：所有 plist 都由本项目自己生成，用不到就地编辑。
+func plutilGuard(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("plutil 必须带参数")
+	}
+	if args[0] != "-lint" {
+		return fmt.Errorf("plutil 只允许 -lint（语法校验），实际 %q", args[0])
+	}
+	if len(args) != 2 {
+		return fmt.Errorf("plutil -lint 只接受一个文件参数")
+	}
+	return nil
+}
+
+// shutdownGuard 限制 shutdown 只做「延后重启」。
+//
+// 为什么不能放开：shutdown 既能把机器重启，也能关机（-h）与断电（-p）。
+// 本应用只承诺「受控重启」，绝不该有关机的可能路径——
+// 关机后如果机器不在物理可及范围，用户就彻底失联了。
+//
+// 只允许：
+//
+//	-r now           立即重启
+//	-r +N            N 分钟后重启（1 ≤ N ≤ 60）
+func shutdownGuard(args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("shutdown 只允许 -r <now|+N> 两个参数，实际 %v", args)
+	}
+	if args[0] != "-r" {
+		return fmt.Errorf("shutdown 只允许 -r（重启），实际 %q；本应用不支持关机或断电", args[0])
+	}
+
+	when := args[1]
+	if when == "now" {
+		return nil
+	}
+	if !strings.HasPrefix(when, "+") {
+		return fmt.Errorf("shutdown 时间必须是 now 或 +N，实际 %q", when)
+	}
+	n, err := strconv.Atoi(strings.TrimPrefix(when, "+"))
+	if err != nil {
+		return fmt.Errorf("shutdown 延后分钟数无法解析: %q", when)
+	}
+	if n < 1 || n > 60 {
+		return fmt.Errorf("shutdown 延后分钟数必须在 1-60 之间，实际 %d", n)
+	}
+	return nil
 }
 
 // pfctlGuard 限制 pfctl 只接受三类调用：

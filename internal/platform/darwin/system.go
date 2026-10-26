@@ -98,7 +98,7 @@ func (c *Collector) SystemOverview(ctx context.Context) (model.SystemOverview, e
 	}
 
 	// 启动时间
-	if boot, err := bootTime(ctx); err == nil {
+	if boot, err := BootTime(ctx); err == nil {
 		b := boot.UTC()
 		ov.BootTime = &b
 		up := now.Sub(b).Seconds()
@@ -210,7 +210,12 @@ func collectDisks(ctx context.Context) ([]model.DiskUsage, error) {
 	return out, nil
 }
 
-func bootTime(ctx context.Context) (time.Time, error) {
+// BootTime 返回本次系统启动时刻。
+//
+// 导出供 power 模块复用（计算运行时长与「上次重启时间」），
+// 避免两处各写一份 kern.boottime 解析——那种重复一旦格式变化
+// 就会出现「概览页正确、电源页错误」的诡异现象。
+func BootTime(ctx context.Context) (time.Time, error) {
 	// kern.boottime 输出形如：{ sec = 1792892051, usec = 984008 } Sun Oct ...
 	out, err := sysctlOne(ctx, "kern.boottime")
 	if err != nil {
