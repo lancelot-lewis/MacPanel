@@ -1,8 +1,31 @@
-# MacPanel（HomeLab Manager）项目长期记忆
+# MacPanel 项目长期记忆
+
+## 命名（2026-10-27 完成全量统一）
+
+产品名 **MacPanel**（展示名同样写 MacPanel，与 GitHub 仓库名一致）。
+旧名 HomeLab Manager / homelab-manager 已全部清除，代码里不要再出现。
+
+| 对象 | 值 |
+| --- | --- |
+| 二进制 | `macpanel`（`/usr/local/bin/macpanel`） |
+| Go module / 仓库 | `github.com/lancelot-lewis/MacPanel` |
+| 命令目录 | `cmd/macpanel/` |
+| 环境变量前缀 | `MACPANEL_`（旧 `HLM_` 已废弃） |
+| launchd label | `com.macpanel.agent` / `.server` / `.task.<id>` |
+| 服务账户 | `_macpanel` |
+| 安装目录 | `/Library/Application Support/MacPanel`、`/Library/Logs/MacPanel`、`/var/run/macpanel` |
+| PF anchor | `com.macpanel.ipv6`（文件 `/etc/pf.anchors/com.macpanel.ipv6`） |
+| 安装包 | `MacPanel-<version>.pkg` / `.dmg` |
+| 卸载命令 | `macpanel-uninstall` |
+
+**刻意保留的旧名**（别误当成遗漏）：`com.homelab.ipv6` 是本机第三方服务的真名，
+文档里描述它时必须用原名；`homelab.example.com` 只是示例域名。
+另外「家庭实验室（HomeLab）」作为**场景词**仍在 PLAN 里使用——它指使用场景，
+不是产品名，别再替换成 MacPanel（替换会让句子语义失真）。
 
 ## 产品与路线
 
-macOS HomeLab 管理面板。**ADR-001 已决策：Go + Vue 3 Web-first，
+MacPanel：macOS 服务器管理面板。**ADR-001 已决策：Go + Vue 3 Web-first，
 不引入 Wails / Tauri / Rust**。理由：PF 规则、计划重启、launchd 服务必须在浏览器
 关闭、用户注销后继续工作，桌面壳无法替代独立的 Root LaunchDaemon。
 
@@ -104,9 +127,9 @@ export PATH="$HOME/.local/share/mise/shims:$PATH"
 make build          # 含前端
 make build-go       # 仅后端（迭代时用）
 make test / test-race / test-cover / check
-./bin/homelab-manager token -dev -force    # 生成 .dev 令牌
-./bin/homelab-manager agent -dev           # 终端 1
-./bin/homelab-manager server -dev          # 终端 2 → http://127.0.0.1:7788
+./bin/macpanel token -dev -force    # 生成 .dev 令牌
+./bin/macpanel agent -dev           # 终端 1
+./bin/macpanel server -dev          # 终端 2 → http://127.0.0.1:7788
 ```
 
 ## 里程碑状态
@@ -154,9 +177,9 @@ agent/firewall.go      流程编排：生成 → 校验 → 写文件 → 事务
 ### 本机开发模式
 
 非 root 或 `-dev` 自动 **dry-run**：走通生成/校验/状态机/界面，不触碰系统。
-真实模式需 `sudo ./bin/homelab-manager agent`。
+真实模式需 `sudo ./bin/macpanel agent`。
 
-Vite 开发需 `HLM_PUBLIC_HOSTS=localhost:5199` + 代理 `changeOrigin: true`，
+Vite 开发需 `MACPANEL_PUBLIC_HOSTS=localhost:5199` + 代理 `changeOrigin: true`，
 否则写请求被 OriginGuard 403（只有写请求校验 Origin，GET 不受影响）。
 
 ### M2 踩过的坑
@@ -179,7 +202,7 @@ Vite 开发需 `HLM_PUBLIC_HOSTS=localhost:5199` + 代理 `changeOrigin: true`�
 
 ```text
 M3  internal/schedule（纯逻辑，80%）→ taskstore → tasksched → launchd
-    cmd/homelab-manager/task-run   launchd 触发的执行入口
+    cmd/macpanel/task-run   launchd 触发的执行入口
 M4  services（扫描/分类/控制器）→ servicestore（受管白名单）
 M6  darwin/diag（TCP+路由+监听） / orbstack（Docker Socket 只读）
 ```
@@ -192,7 +215,7 @@ M6  darwin/diag（TCP+路由+监听） / orbstack（Docker Socket 只读）
 | netstat 协议列有 `tcp6/tcp46/udp6/udp46` 四种 | 只匹配 tcp6 会漏掉双栈监听（最常见形态） |
 | 某些受限环境 `netstat -an` 只返回 multipath 段 | 必须检查标志性标题行，否则会把「读不到」显示成「0 个」 |
 | 本机 macOS 27 上 `pfctl` 在 `/sbin`，`vm_stat` 在 `/usr/bin` | 已修正，别再用 `/usr/sbin/pfctl` |
-| 本机存在 `com.homelab.ipv6` launchd 服务 | **不是本项目创建的**，本项目用 `com.homelab.manager.*` |
+| 本机存在 `com.homelab.ipv6` launchd 服务 | **不是本项目创建的**，本项目用 `com.macpanel.*` |
 
 ### 四条设计约束（改动时别破坏）
 
@@ -228,7 +251,7 @@ Service Controller **仍装配**（但非 root 时能力受限）。
 
 ### 防火墙救援 CLI（新增，别让它退化成「走 IPC」）
 
-`homelab-manager firewall {status,rollback,unload}`（见 `cmd/.../firewall_cli.go`）
+`macpanel firewall {status,rollback,unload}`（见 `cmd/.../firewall_cli.go`）
 **刻意不连 Server 与 Unix Socket**：规则一旦挡住 SSH，面板那四跳本身就断了。
 它直连 `firewalld.Manager`，所以 pfctl 三层限制一条不少。非 root 自动 dry-run。
 
@@ -240,13 +263,13 @@ Service Controller **仍装配**（但非 root 时能力受限）。
 
 ```bash
 make pkg && make verify-pkg && make dmg     # 都不需要 root
-sudo installer -pkg HomeLabManager-<v>.pkg -target /
-sudo homelab-manager-uninstall [--yes|--purge]   # 随包安装
+sudo installer -pkg MacPanel-<v>.pkg -target /
+sudo macpanel-uninstall [--yes|--purge]   # 随包安装
 ```
 
 包的事实：二进制 + 卸载脚本在 `/usr/local/bin`（100755）、plist 在
 `/Library/LaunchDaemons`（100644）；数据目录**不进 payload**（否则升级覆盖用户数据），
-由 postinstall 建立 root:wheel 0750 / data 为 _homelab 0700。
+由 postinstall 建立 root:wheel 0750 / data 为 _macpanel 0700。
 
 ### 打包环境陷阱（本机实测）
 
