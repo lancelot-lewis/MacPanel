@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/lancelot-lewis/MacPanel/internal/agent"
@@ -48,9 +47,9 @@ func wireFirewall(
 
 	// 状态文件放在 root 独占目录，与数据库分离：
 	// 数据库可能被非特权账户改坏，回滚状态不能依赖它。
-	stateDir := filepath.Dir(cfg.SocketPath)
-	statePath := filepath.Join(stateDir, "firewall-state.json")
-	stateStore, err := firewalld.NewFileStore(statePath)
+	// 状态文件路径由 FirewallStatePath 统一给出：CLI 救援命令读的是同一份文件，
+	// 两边各算一次会漂移（那会导致「面板说 pending、命令行说空闲」）。
+	stateStore, err := firewalld.NewFileStore(FirewallStatePath(cfg))
 	if err != nil {
 		return firewallWiring{disabledWhy: fmt.Sprintf("状态存储初始化失败：%v", err)}
 	}

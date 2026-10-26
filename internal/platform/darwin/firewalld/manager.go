@@ -347,6 +347,49 @@ func (m *Manager) Rollback(ctx context.Context, reason string) (State, error) {
 	return m.State(ctx)
 }
 
+// Unload 无条件清空本应用 anchor。
+//
+// 与 Rollback 的区别：
+//   - Rollback 取消「当前事务」，因此要求确实存在一个事务（idle 时报错）；
+//   - Unload 只回答「让本应用不再持有任何 PF 规则」，与当前处于什么阶段无关。
+//
+// 这是 CLI 救援需要的最后手段。典型场景：状态文件被误删或与 PF 实际状态不一致，
+// 导致 Manager 认为无事可做，但 anchor 里确实残留着挡住 SSH 的规则。
+// 此时必须能在不知道历史状态的前提下清空本应用 anchor。
+//
+// 同样遵循「先做、再记」的顺序无关化保障：清空成功后才改写状态，
+// 若清空失败则保持原状态不动（失败原因在返回的 error 里）。
+func (m *Manager) Unload(ctx context.Context, reason string) (State, error) {
+	prev, err := m.State(ctx)
+	if err != nil {
+		return prev, err
+	}
+	if reason == "" {
+		reason = "人工卸载本应用规则"
+	}
+
+	if err := m.applier.Load(ctx, m.anchorName, "/dev/null"); err != nil {
+		return prev, model.NewError(model.CodeInternal, "清空 anchor 失败：%v", err)
+	}
+
+	// 回到 idle：本应用没有正在生效的规则，也没有待处理的事务。
+	// ContentHash 必须清空——它代表「anchor 里现在有什么」。
+	st := State{
+		Phase:        PhaseIdle,
+		RevisionID:   prev.RevisionID,
+		PreviousHash: prev.PreviousHash,
+		Reason:       reason,
+		UpdatedAt:    m.now(),
+	}
+	if err := m.store.Save(ctx, st); err != nil {
+		return st, model.NewError(model.CodeInternal,
+			"anchor 已清空，但写入清理后的状态失败（PF 是干净的，请重新执行一次以刷新状态）：%v", err)
+	}
+
+	m.log.Warn("已强制卸载本应用 anchor 规则", "reason", reason, "previousPhase", prev.Phase)
+	return st, nil
+}
+
 // PurgeExpired 检查并处理超时事务。由后台定时器与每个读接口调用，
 // 确保即使没有用户操作，超时也会触发回滚。
 //

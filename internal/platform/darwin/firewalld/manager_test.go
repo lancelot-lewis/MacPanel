@@ -582,3 +582,96 @@ func TestHashContentStable(t *testing.T) {
 		t.Errorf("SHA-256 十六进制应为 64 字符，实际 %d", len(a))
 	}
 }
+
+// TestUnloadClearsAnchorFromAnyPhase 验证 Unload 不挑当前阶段。
+//
+// 这是它与 Rollback 的唯一实质区别，也是 CLI 救援依赖的性质：
+// 状态文件可能与 PF 实际状态不一致（被删过、被手改过），
+// 那时 Rollback 会因「没有事务」拒绝执行，而 Unload 必须仍然可用。
+func TestUnloadClearsAnchorFromAnyPhase(t *testing.T) {
+	phases := []Phase{PhaseIdle, PhaseConfirmed, PhaseFailed, PhaseRolledBack}
+
+	for _, start := range phases {
+		t.Run(string(start), func(t *testing.T) {
+			m, applier, store, _ := newTestManager(t)
+			ctx := context.Background()
+
+			if err := store.Save(ctx, State{
+				Phase:       start,
+				RevisionID:  7,
+				ContentHash: HashContent("block drop in all"),
+				Reason:      "测试起点",
+			}); err != nil {
+				t.Fatalf("准备状态失败: %v", err)
+			}
+
+			st, err := m.Unload(ctx, "救援测试")
+			if err != nil {
+				t.Fatalf("Unload 失败: %v", err)
+			}
+			if st.Phase != PhaseIdle {
+				t.Errorf("Unload 后应为 idle，实际 %s", st.Phase)
+			}
+			if st.ContentHash != "" {
+				t.Errorf("Unload 后不应保留 ContentHash（anchor 已无内容），实际 %q", st.ContentHash)
+			}
+			if len(applier.loadCalls) != 1 || applier.loadCalls[0] != "com.test.ipv6|/dev/null" {
+				t.Errorf("应恰好加载一次 /dev/null，实际 %v", applier.loadCalls)
+			}
+
+			// 再次读取应回到空闲，且修订号保留（便于回溯是哪一版被撤了）
+			got, err := m.State(ctx)
+			if err != nil {
+				t.Fatalf("读取状态失败: %v", err)
+			}
+			if got.Phase != PhaseIdle || got.RevisionID != 7 {
+				t.Errorf("持久化状态不符: phase=%s revision=%d", got.Phase, got.RevisionID)
+			}
+		})
+	}
+}
+
+// TestUnloadAlsoWorksOnPending 验证 Unload 能覆盖 pending 事务。
+func TestUnloadAlsoWorksOnPending(t *testing.T) {
+	m, _, _, _ := newTestManager(t)
+	ctx := context.Background()
+
+	if _, err := m.Apply(ctx, "pass in quick inet6 all", 3, ""); err != nil {
+		t.Fatalf("准备 pending 状态失败: %v", err)
+	}
+
+	st, err := m.Unload(ctx, "救援测试")
+	if err != nil {
+		t.Fatalf("Unload 失败: %v", err)
+	}
+	if st.Phase != PhaseIdle {
+		t.Errorf("pending 下 Unload 应回到 idle，实际 %s", st.Phase)
+	}
+}
+
+// TestUnloadKeepsStateOnFailure 验证清空失败时不改写状态。
+//
+// 失败原因必须让用户看得见；同时状态要保持不变，
+// 否则下一次会因为状态已被改写而失去重试的线索。
+func TestUnloadKeepsStateOnFailure(t *testing.T) {
+	m, applier, _, _ := newTestManager(t)
+	ctx := context.Background()
+
+	applier.loadErr["/dev/null"] = errors.New("pfctl 模拟失败")
+
+	if err := m.store.Save(ctx, State{Phase: PhaseConfirmed, RevisionID: 9}); err != nil {
+		t.Fatalf("准备状态失败: %v", err)
+	}
+
+	if _, err := m.Unload(ctx, "救援测试"); err == nil {
+		t.Fatal("加载失败时 Unload 应返回错误")
+	}
+
+	st, err := m.State(ctx)
+	if err != nil {
+		t.Fatalf("读取状态失败: %v", err)
+	}
+	if st.Phase != PhaseConfirmed || st.RevisionID != 9 {
+		t.Errorf("失败后状态不应变化，实际 phase=%s revision=%d", st.Phase, st.RevisionID)
+	}
+}

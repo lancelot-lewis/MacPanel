@@ -2,12 +2,14 @@
 //
 // 子命令：
 //
-//	server  非特权 Web 服务（含内嵌前端）
-//	agent   Root 特权 Agent（Unix Socket RPC）
-//	status  通过 CLI 查询 Agent 状态（不需要浏览器）
-//	token   生成 / 安装 IPC 共享令牌（安装器与本地开发用）
-//	config  打印生效配置（排查配置问题）
-//	version 打印版本
+//	server   非特权 Web 服务（含内嵌前端）
+//	agent    Root 特权 Agent（Unix Socket RPC）
+//	status   通过 CLI 查询 Agent 状态（不需要浏览器）
+//	firewall 防火墙状态与本地回滚（不依赖 Agent 与浏览器，用于网络失联时救援）
+//	token    生成 / 安装 IPC 共享令牌（安装器与本地开发用）
+//	config   打印生效配置（排查配置问题）
+//	version  打印版本
+//	task-run 由 launchd 触发的计划任务入口（非交互 humans 勿用）
 package main
 
 import (
@@ -70,6 +72,8 @@ func run(args []string) error {
 	case "version", "--version", "-v":
 		fmt.Println(version.Current().String())
 		return nil
+	case "firewall":
+		return runFirewallCLI(rest)
 	case "help", "--help", "-h":
 		printUsage()
 		return nil
@@ -92,6 +96,7 @@ func printUsage() {
   token       生成并写入 IPC 共享令牌
   config      打印生效配置并校验
   version     打印版本信息
+  firewall    防火墙状态查看与本地回滚（不经 IPC，救援用）
 
 环境变量:
   HLM_LISTEN_ADDR        监听地址，默认 127.0.0.1:7788
@@ -455,7 +460,7 @@ func runStatus(args []string) error {
 		}
 		fmt.Printf("  Anchor %s: %s（文件存在=%v 主配置引用=%v）\n",
 			fw.Anchor.Name, fw.Anchor.State, fw.Anchor.Present, fw.Anchor.Referenced)
-		fmt.Printf("  期望状态: %s，可写: %v（M1 只读）\n", fw.Managed, fw.Writable)
+		fmt.Printf("  期望状态: %s，可写: %v\n", fw.Managed, fw.Writable)
 		for _, w := range fw.Warnings {
 			fmt.Printf("  ! %s\n", w)
 		}
