@@ -34,18 +34,20 @@ func TestLaunchctlGuardRejectsDangerousSubcommands(t *testing.T) {
 	}
 }
 
-// TestLaunchctlGuardRejectsNonSystemDomain 验证只允许 system 域。
+// TestLaunchctlGuardRejectsNonSystemDomainForWrites 验证改变状态的子命令
+// 只允许 system 域。
 //
-// 用户域（gui/<uid>、user/<uid>）属于交互会话，
-// 本应用以 root 运行，没有理由介入他人会话。
-func TestLaunchctlGuardRejectsNonSystemDomain(t *testing.T) {
+// 用户域（gui/<uid>、user/<uid>）属于交互会话，本应用以 root 运行，
+// 没有理由改写他人会话的服务状态。
+// 只读的 print 是例外（诊断需要），见下面的用例。
+func TestLaunchctlGuardRejectsNonSystemDomainForWrites(t *testing.T) {
 	cases := [][]string{
-		{"print", "gui/501/com.example"},
-		{"print", "user/501/com.example"},
 		{"bootstrap", "gui/501", "/Library/LaunchAgents/x.plist"},
 		{"bootstrap", "user/501", "/Library/LaunchAgents/x.plist"},
 		{"bootout", "gui/501/com.example"},
 		{"kickstart", "user/501/com.example"},
+		{"enable", "gui/501/com.example"},
+		{"disable", "user/501/com.example"},
 	}
 
 	for _, args := range cases {
@@ -54,6 +56,32 @@ func TestLaunchctlGuardRejectsNonSystemDomain(t *testing.T) {
 				t.Errorf("应拒绝非 system 域：%v", args)
 			}
 		})
+	}
+}
+
+// TestLaunchctlGuardAllowsReadOnlyDomainQuery 验证 print 可查任意域。
+//
+// 排查「服务为什么没起来」经常需要看用户域；print 不改变状态，
+// 因此放宽是合理的。写操作仍限 system（上一个用例）。
+func TestLaunchctlGuardAllowsReadOnlyDomainQuery(t *testing.T) {
+	cases := [][]string{
+		{"print", "system"},
+		{"print", "system/com.example"},
+		{"print", "gui/501"},
+		{"print", "gui/501/com.example"},
+		{"print", "user/501/com.example"},
+	}
+	for _, args := range cases {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			if err := launchctlGuard(args); err != nil {
+				t.Errorf("应允许只读查询 %v，实际: %v", args, err)
+			}
+		})
+	}
+
+	// 无域前缀的裸标签应被拒绝（避免歧义）
+	if err := launchctlGuard([]string{"print", "com.example"}); err == nil {
+		t.Error("无域前缀的目标应被拒绝")
 	}
 }
 

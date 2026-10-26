@@ -105,11 +105,13 @@ func launchctlGuard(args []string) error {
 		return nil
 
 	case "print":
-		// 必须指定 target，且只允许 system 域或 system/<label>。
+		// 必须指定 target。print 是只读查询，因此允许查询任意域
+		// （诊断需要看 gui/<uid> 与 user/<uid>），
+		// 但改变状态的子命令仍只允许 system 域。
 		if len(args) < 2 {
 			return fmt.Errorf("launchctl print 需要指定目标")
 		}
-		return requireSystemDomain(args[1])
+		return requireReadableDomain(args[1])
 
 	case "bootstrap":
 		// bootstrap <domain> <plist-path>
@@ -135,6 +137,23 @@ func launchctlGuard(args []string) error {
 	default:
 		return fmt.Errorf("launchctl 子命令 %q 不在允许范围内", sub)
 	}
+}
+
+// requireReadableDomain 允许只读查询任意域。
+//
+// 与 requireSystemDomain 的区别：print 不改变任何状态，
+// 而排查「某服务为什么没起来」经常需要看用户域。
+// 因此这里放宽到 system / gui/<uid> / user/<uid>。
+func requireReadableDomain(target string) error {
+	if target == "" {
+		return fmt.Errorf("launchctl 目标不能为空")
+	}
+	for _, prefix := range []string{"system", "gui/", "user/", "pid/"} {
+		if target == prefix || strings.HasPrefix(target, prefix) {
+			return nil
+		}
+	}
+	return fmt.Errorf("launchctl 目标域不被允许：%q", target)
 }
 
 // requireSystemDomain 要求 target 形如 system 或 system/<label>。
