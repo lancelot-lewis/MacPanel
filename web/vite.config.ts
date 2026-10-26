@@ -45,7 +45,10 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: backend,
-        changeOrigin: false,
+        // 必须改写成后端自己的 Host，否则会被后端的 HostGuard 拒绝
+        // （它只允许 127.0.0.1:7788 / localhost:7788，防 DNS rebinding）。
+        // 之前设为 false 时，开发模式下所有 API 都返回「Host 头不被允许」。
+        changeOrigin: true,
       },
     },
   },

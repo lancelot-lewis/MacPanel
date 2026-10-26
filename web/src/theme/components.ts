@@ -18,6 +18,10 @@ import {
   NButton,
   NCard,
   NCheckbox,
+  NCheckboxGroup,
+  NDrawer,
+  NDrawerContent,
+  NPopconfirm,
   NConfigProvider,
   NDataTable,
   NDescriptions,
@@ -56,6 +60,8 @@ const registry: Record<string, Component> = {
   NLayoutSider,
   NCard,
   NDivider,
+  NDrawer,
+  NDrawerContent,
 
   // 导航
   NMenu,
@@ -83,12 +89,14 @@ const registry: Record<string, Component> = {
   NRadioButton,
   NRadio,
   NCheckbox,
+  NCheckboxGroup,
   NSwitch,
 
   // 反馈
   NAlert,
   NButton,
   NIcon,
+  NPopconfirm,
   NMessageProvider,
   NDialogProvider,
 }

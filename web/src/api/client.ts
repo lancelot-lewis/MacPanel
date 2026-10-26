@@ -132,3 +132,62 @@ export const api = {
     return request(`/api/v1/audit?${qs.toString()}`)
   },
 }
+
+// ---- M2：防火墙规则 ----
+
+import type {
+  ApplyResult,
+  FirewallTemplate,
+  PreviewResult,
+  RuleSet,
+  RulesGetResult,
+  TransactionState,
+} from './firewall'
+
+export const firewallApi = {
+  async getRules(): Promise<ApiResult<RulesGetResult>> {
+    return request<RulesGetResult>('/api/v1/firewall/rules')
+  },
+
+  async saveRules(ruleSet: RuleSet): Promise<ApiResult<PreviewResult>> {
+    return request<PreviewResult>('/api/v1/firewall/rules', {
+      method: 'PUT',
+      body: JSON.stringify(ruleSet),
+    })
+  },
+
+  /** 预览未保存的规则（改了还没存时也能看生成的 PF 文本） */
+  async preview(ruleSet?: RuleSet): Promise<ApiResult<PreviewResult>> {
+    return request<PreviewResult>('/api/v1/firewall/preview', {
+      method: 'POST',
+      body: JSON.stringify(ruleSet ? { ruleSet } : {}),
+    })
+  },
+
+  /** 应用规则。必须显式确认风险——后端会校验 confirmsRisk。 */
+  async apply(ruleSet?: RuleSet): Promise<ApiResult<ApplyResult>> {
+    return request<ApplyResult>('/api/v1/firewall/apply', {
+      method: 'POST',
+      body: JSON.stringify({ ...(ruleSet ? { ruleSet } : {}), confirmsRisk: true }),
+    })
+  },
+
+  async confirm(): Promise<ApiResult<TransactionState>> {
+    return request<TransactionState>('/api/v1/firewall/confirm', { method: 'POST' })
+  },
+
+  async rollback(reason: string): Promise<ApiResult<TransactionState>> {
+    return request<TransactionState>('/api/v1/firewall/rollback', {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    })
+  },
+
+  async transaction(): Promise<ApiResult<{ state: TransactionState }>> {
+    return request<{ state: TransactionState }>('/api/v1/firewall/transaction')
+  },
+
+  async templates(): Promise<ApiResult<{ items: FirewallTemplate[] }>> {
+    return request<{ items: FirewallTemplate[] }>('/api/v1/firewall/templates')
+  },
+}
