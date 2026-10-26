@@ -116,6 +116,10 @@ clean-all: clean ## 清理全部产物（含数据与前端）
 pkg: build ## 构建 PKG 安装包（需 root 权限验证安装）
 	./packaging/macos/pkg/build-pkg.sh
 
+.PHONY: verify-pkg
+verify-pkg: ## 静态校验已构建的 PKG（不需 root，不会安装任何东西）
+	./scripts/verify-pkg.sh
+
 .PHONY: dmg
 dmg: pkg ## 构建 DMG 分发容器
 	./packaging/macos/dmg/build-dmg.sh
