@@ -47,6 +47,74 @@ make check
 | 远程模式已登录也无法改密码 | 同根：handler 内拿不到会话 | 新增 `hasValidSession()` 手动校验 cookie | `TestChangePasswordInRemoteMode` |
 | 测试报 `bind: invalid argument` | Socket 路径超 `sun_path` 104 字节上限 | 生产代码加 `validateSocketPath` 提前校验；测试改用短路径 | `TestSocketPathTooLongRejected` |
 
+### 2.1.2 M2 防火墙：规则生成与校验（`internal/platform/darwin/pfrules`，19 个测试）
+
+| 测试 | 验证内容 |
+| --- | --- |
+| `TestGenerateContainsMandatoryRules` | 4 类强制放行规则必定存在，且强制清单完整上报 |
+| `TestGenerateNeverEmitsGlobalDirectives` | 绝不产出 `set`/`scrub`/`nat`/`rdr`/`include`/`load anchor` |
+| `TestAllRulesAreInet6` | 每条 pass/block 都带 `inet6`（不变量 1） |
+| `TestVerifyPassesOnGeneratedContent` | 4 种规则集自生成自校验均通过 |
+| `TestVerifyDetectsForbiddenDirectives` | 5 类全局指令被识别 |
+| `TestVerifyDetectsMissingLoopback` | 缺 lo0 放行 → 关联不变量 2 |
+| `TestVerifyDetectsMissingICMPv6` | 缺 ICMPv6 → 关联不变量 4 |
+| `TestVerifyDetectsNonInet6Rule` | 未限定 inet6 → 关联不变量 1 |
+| `TestGenerateRejectsDangerousDefaultDeny` | `lo0`/`utun*`/`ipsec*`/`gif*` 不能用于默认拒绝 |
+| `TestGenerateReportsSkippedRules` | 禁用规则被记录而非静默丢弃 |
+| `TestCommentInjectionPrevented` | **规则名含换行时无法注入额外 PF 规则** |
+| `TestPortRangeRendering` | 端口范围用 PF 的 `a:b` 语法 |
+| `TestDefaultDenyOnlyWhenConfigured` | 未配置接口时不生成 block，并明确说明 |
+| `TestGenerateValidatesInput` | 4 类非法输入在生成前被拒绝 |
+| `TestTemplatesAreValid` | 5 个模板生成的规则都能通过校验 |
+| `TestTemplatesHaveNote` | 每个模板都带「必须核实端口」的提示 |
+| `TestTemplatesAvoidUnintendedWideRanges` | **模板不会意外放行大段端口** |
+| `TestCaddyTemplateUsesExactPorts` | Caddy 必须是 80/443 两个单端口 |
+| `TestFindTemplate` | 按 key 查找 |
+
+### 2.1.3 M2 防火墙：事务与回滚（`internal/platform/darwin/firewalld`，17 个测试）
+
+| 测试 | 验证内容 |
+| --- | --- |
+| `TestApplyEntersPending` | 应用后进入 pending，deadline = now + 超时 |
+| `TestApplyAbortsOnSyntaxError` | **语法失败时不加载、不写 pending** |
+| `TestConfirmMakesRulePermanent` | 确认后清除 deadline，不再自动回滚 |
+| `TestConfirmIsIdempotent` | 重复确认返回 200 |
+| `TestConfirmRejectedAfterDeadline` | **超时后确认被拒绝并触发回滚** |
+| `TestPurgeExpiredRollsBack` | 59 秒不回滚、61 秒回滚 |
+| `TestRollbackIsIdempotent` | 重复回滚不报错 |
+| `TestRecoverRollsBackExpiredOnStartup` | **崩溃重启后回滚超时配置** |
+| `TestRecoverKeepsUnexpiredDeadline` | **重启不重置倒计时**（关键） |
+| `TestApplyRollsBackPendingFirst` | 应用新规则前先回滚未确认的旧配置 |
+| `TestApplyRollsBackOnLoadFailure` | 加载失败自动回滚 |
+| `TestApplyRejectsEmptyContent` | 空内容被拒绝 |
+| `TestConfirmRejectedWhenIdle` / `TestRollbackRejectedWhenIdle` | 无事务时报 409 |
+| `TestStatePersistedAcrossInstances` | 状态真正落盘，换实例仍可读 |
+| `TestNewValidatesOptions` | 5 类无效构造参数 |
+| `TestHashContentStable` | 哈希稳定且能区分大小差异 |
+
+### 2.1.4 M2：pfctl 参数白名单（`internal/platform/execx`，+5 个测试）
+
+| 测试 | 验证内容 |
+| --- | --- |
+| `TestPFctlGuardRejectsDangerousFlags` | `-d`/`-e`/`-F`/`-k`/`-x`/`-z`/`-m` 全拒绝，**含混在合法参数中的情况** |
+| `TestPFctlGuardAllowsExpectedCalls` | 6 种合法调用全部通过 |
+| `TestPFctlGuardRejectsUnknownCombinations` | 6 种非法组合被拒绝 |
+| `TestRunEnforcesArgGuard` | `Run` 确实调用参数校验 |
+| `TestArgGuardScopeLimited` | 只有 pfctl 有参数 guard（不误伤只读命令） |
+
+### 2.1.5 M2：规则持久化（`internal/firewallstore`，8 个测试）
+
+| 测试 | 验证内容 |
+| --- | --- |
+| `TestSaveAndLoadRoundTrip` | 全字段往返一致 |
+| `TestSaveReplacesExisting` | 整体替换，旧接口配置被清空 |
+| `TestSaveRejectsInvalid` | 非法规则集不写入 |
+| `TestSaveIsAtomic` | **失败时原有数据完好** |
+| `TestSaveBackfillsIDs` | 保存后返回数据库分配的 ID（曾漏过） |
+| `TestEmptyRuleSet` | 空规则集可读写 |
+| `TestRevisionLifecycle` | 候选 → 已应用 → 已回滚，时间戳与原因保留 |
+| `TestLastKnownGood` | 「上一份可用配置」查找与排除逻辑 |
+
 ### 2.2 配置与令牌（`internal/config`）
 
 | 测试 | 验证内容 |
@@ -123,6 +191,16 @@ make check
 | `TestLoginRateLimited` | 连续失败 → 429 |
 | `TestAuthStatusReportsMode` | local / remote 模式正确上报 |
 | `TestAuditListLimitValidation` | 4 种非法 limit → 400 |
+| `TestApplyRequiresRiskConfirmation` | 应用必须带 `confirmsRisk`，否则 400 且不触达 Agent |
+| `TestApplyAcceptsConfirmationHeader` | 可用 `X-HLM-Confirm-Risk` 头确认 |
+| `TestApplyRejectsFalseConfirmation` | `confirmsRisk=false` 不视为确认 |
+| `TestApplyDeniedIsAudited` | 被拒绝的尝试写入审计（denied） |
+| `TestApplyFailureIsAudited` | 应用失败写入审计（failure） |
+| `TestRulesSaveIsAudited` | 保存规则留审计 |
+| `TestConfirmAndRollbackAreAudited` | 确认与回滚留审计 |
+| `TestRollbackPassesReasonToAgent` | 回滚原因传递到 Agent |
+| `TestFirewallWriteRequiresAuth` | 未登录写请求 401 且不触达 Agent |
+| `TestAgentNotImplementedMapsTo501` | Agent 未实现 → 501，不包装成 500 |
 | `TestSecurityHeaders` | 6 项安全头 + X-Request-Id + no-store |
 | `TestMetaReportsFeatureFlags` | 写能力全部 false，读能力 true |
 | `TestAuditRecorded` | 读接口写入审计 |
@@ -187,19 +265,33 @@ make check
 
 ## 3. 覆盖率（M1 实测）
 
+M2 完成后的实测覆盖率（`go test ./... -cover`）：
+
 ```text
-internal/ipc              100.0%
-internal/platform/execx    88.9%
-internal/database          80.0%
-internal/server            78.7%
-internal/platform/darwin   78.8%
-internal/agent             79.9%（含 helpers）
-internal/audit             70.0%
-internal/auth              89.6%（关键路径）
-internal/config            64.6%
-────────────────────────────────
-合计                       61.7%
+internal/platform/darwin/pfrules    88.2%   ← M2 规则生成与校验
+internal/platform/darwin/firewalld  43.2%   ← 未覆盖部分主要是 pfctl 真实调用（需 root）
+internal/firewallstore              81.4%   ← M2 规则持久化
+internal/platform/execx             87.0%
+internal/audit                      89.6%
+internal/platform/fake              88.9%
+internal/config                     80.0%
+internal/auth                       79.9%
+internal/platform/darwin            78.7%
+internal/database                   70.7%
+internal/ipc                        68.1%
+internal/server                     67.8%
+internal/agent                      26.9%   ← 大量 handler 需装配依赖后才可达
+──────────────────────────────────────────
+合计                                 56.8%
 ```
+
+`firewalld` 的 43.2% 与 `agent` 的 26.9% 需要说明：
+- `firewalld` 未覆盖部分集中在 `pfexecutor_darwin.go`（真实 pfctl 调用、
+  dry-run 分支），这些路径只能在 root 环境下执行；
+- `agent` 的 M2 handler 需要完整装配 `FirewallDeps` 才可达，
+  当前测试只覆盖「依赖未就绪 → 返回未实现」的降级路径。
+
+这两处是 M2 实机验证阶段必须补齐的部分，已记入 `docs/m2-acceptance.md`。
 
 `internal/server` 与 `internal/auth` 的未覆盖部分主要是防御性分支
 （数据库错误路径、cookie 属性分支）与 CLI 主函数；安全关键路径已全部覆盖。
@@ -299,6 +391,75 @@ internal/config            64.6%
 - [ ] PKG 在干净系统安装验证（M5）
 - [ ] DMG 构建与挂载验证（M5）
 - [ ] Developer ID 签名与公证（M5）
+
+## 4.7 M2 防火墙实机验收清单（需 root，未验证）
+
+以下项目**必须**在真实 Mac mini 上以 root 运行 Agent 后逐项验证。
+未全部通过前，M2 的防火墙写入能力应视为 beta。
+
+### 前置检查
+
+```bash
+# 1. anchor 是否已在主配置中引用（调用顺序会影响 quick 的行为）
+sudo grep -n "anchor" /etc/pf.conf
+
+# 2. 当前 PF 状态基线
+sudo pfctl -s info
+sudo pfctl -s Anchors
+
+# 3. 记录本机 IPv6 地址
+ifconfig en0 | grep inet6
+```
+
+- [ ] `/etc/pf.conf` 中存在本应用 anchor 的 `anchor` 与 `load anchor` 行
+- [ ] anchor 调用位置在系统 anchor 之后（避免 `quick` 截断系统规则）
+- [ ] 已记录 PF 基线状态，便于对照
+
+### 基础连通性（不变量 1–4）
+
+- [ ] `pfctl -n -f` 对生成的规则文件返回 0（语法通过）
+- [ ] 应用后 `sudo pfctl -a com.homelab.manager.ipv6 -sr` 能看到全部规则
+- [ ] `ping6 ::1` 正常（不变量 2）
+- [ ] `ping6 <本机公网 IPv6>` 正常（不变量 2）
+- [ ] 主动 `curl -6 https://example.com` 正常（不变量 3）
+- [ ] 邻居发现正常：`ndp -a` 能解析同 LAN 设备（不变量 4）
+- [ ] `ping6` 大包（`-s 1400`）不失败（路径 MTU 正常，不变量 4）
+- [ ] **IPv4 行为与启用前一致**（不变量 1）：`ping`、`curl -4`、
+      同 LAN Windows 用 IPv4 访问均不受影响
+
+### 白名单端口（不变量 5、6）
+
+- [ ] 同 LAN Windows 访问白名单端口（如 443）成功
+- [ ] 同 LAN Windows 访问未在白名单的端口被拒绝（`Test-NetConnection` 超时）
+- [ ] 默认拒绝只影响 `en0`：其他接口（如 `utun*`）的入站不受影响
+- [ ] 尝试把 `lo0` 加入默认拒绝 → 被后端拒绝（400）
+
+### 超时回滚（最关键）
+
+- [ ] 应用一份「故意阻断 SSH 端口」的规则
+- [ ] **远程 SSH 连接立即断开**
+- [ ] 60 秒后不确认，连接自动恢复（超时回滚生效）
+- [ ] 检查状态：`curl /api/v1/firewall/transaction` 返回 `rolled_back`
+- [ ] 应用同样的规则并立即确认 → SSH 保持断开（证明确认确实固化了配置）
+- [ ] 手动回滚后 SSH 恢复
+
+### 崩溃恢复
+
+- [ ] 应用规则后（不确认）立即 `sudo launchctl kickstart -k system/com.homelab.manager.agent`
+- [ ] Agent 重启后：若已超时则自动回滚；若未超时则保留原 deadline
+- [ ] 检查 `/var/run/homelab-manager/firewall-state.json` 的 `deadline` 未被重置
+
+### 环境变化
+
+- [ ] IPv6 前缀变化后，访问本机新地址仍正常
+- [ ] 网卡切换（en0 ↔ en1）后规则仍正确生效
+- [ ] 睡眠唤醒后规则仍生效
+- [ ] 系统重启后 anchor 按配置重新加载（若已写入主配置）
+
+### 例外场景
+
+- [ ] 系统开启「应用防火墙」时，两者规则互不破坏
+- [ ] 其他程序的 anchor 仍被正常加载（`pfctl -s Anchors` 对照基线）
 
 ## 5. 未覆盖 / 待补
 

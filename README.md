@@ -3,10 +3,13 @@
 macOS HomeLab 管理面板。单个 Go 二进制 + 内嵌 Vue 3 前端，原生运行、不依赖 Docker，
 用于统一管理系统状态、IPv6 防火墙、定时重启、启动项与网络诊断。
 
-> **当前版本：M1（只读）**
-> 已实现：系统概览、网络接口、PF/anchor 只读状态、操作审计、本地/远程访问认证。
-> **未实现**：防火墙规则写入与应用、定时重启、启动项启停、OrbStack。
-> 未实现的接口统一返回 `501 not_implemented`，不会伪造成功。
+> **当前版本：M2（防火墙规则可写，实机加载待验证）**
+> 已实现：系统概览、网络接口、操作审计、本地/远程认证、
+> **IPv6 防火墙规则编辑 / 预览 / 应用 / 60 秒超时回滚**。
+> **未实现**：定时重启、启动项启停、OrbStack。未实现接口统一返回 `501`。
+>
+> ⚠️ M2 的 PF 真实加载**尚未在实机验证**（开发机无 root）。
+> 详见 [`docs/m2-acceptance.md`](docs/m2-acceptance.md)，其中列出了必须实测的项目。
 
 ## 技术路线
 
@@ -100,6 +103,19 @@ make web-dev         # 终端 2：Vite 5173，/api 自动代理到 7788
 
 ### 常用命令
 
+### 启用防火墙规则写入
+
+Agent 以 root 运行时才会真正调用 pfctl。开发环境（`-dev` 或非 root）自动进入
+**dry-run 模式**：完整走通生成、校验、状态机与界面，但不触碰系统防火墙。
+
+```bash
+# 开发模式（dry-run，安全）
+make dev-agent
+
+# 真实模式（需 root，会实际修改 PF）
+sudo ./bin/homelab-manager agent
+```
+
 ```bash
 make test            # 全部 Go 测试
 make test-race       # 竞态检测
@@ -178,8 +194,13 @@ make dmg             # 构建 DMG（不挂载）
 5. **安装包未签名**：Gatekeeper 会拦截，需手动放行或自行签名。
 6. **前端无自动化测试**：仅有 TypeScript 类型检查 + 脚本化浏览器验证
    （对比度、溢出、交互流程均已脚本化检查，见 `docs/testing.md`）。
-7. **组件库体积**：Naive UI 按需注册后仍占 gzip 约 187 kB，是整包的主要体积来源。
-8. **组件库需手动登记**：新增 Naive UI 组件必须在 `web/src/theme/components.ts`
+7. **PF 写入未实机验证**：M2 的 `pfctl` 调用路径已完整实现并有 180 个测试覆盖逻辑层，
+   但**真实加载未在本机执行**（无 root）。首次使用前请按
+   `docs/m2-acceptance.md` 第 5 节逐项验证，并保留可用的本地终端。
+8. **回滚是「清空 anchor」**：不恢复上一份规则内容（本应用只持有历史哈希，
+   不复制规则文件以缩小敏感面）。如需恢复历史规则，需重新保存并应用。
+9. **组件库体积**：Naive UI 按需注册后仍占 gzip 约 193 kB，是整包的主要体积来源。
+10. **组件库需手动登记**：新增 Naive UI 组件必须在 `web/src/theme/components.ts`
    补一行，否则模板中会解析失败（控制台 `Failed to resolve component`）。
 
 ## 文档
@@ -192,6 +213,7 @@ make dmg             # 构建 DMG（不挂载）
 | [docs/recovery.md](docs/recovery.md) | 故障诊断、CLI 救援、密码重置、卸载 |
 | [docs/testing.md](docs/testing.md) | 测试矩阵与实机验收清单 |
 | [docs/m1-acceptance.md](docs/m1-acceptance.md) | M1 验收记录 |
+| [docs/m2-acceptance.md](docs/m2-acceptance.md) | M2 验收记录（含必须实机验证的清单） |
 
 ## 许可
 

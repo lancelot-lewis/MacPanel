@@ -214,7 +214,71 @@ CHECK (port_from IS NULL OR port_to IS NULL OR port_from <= port_to)
   → 响应 {ok, data, meta:{degraded, notes}}
 ```
 
-## 8. 已知限制（M1）
+## 7.1 M2：PF 规则生成与应用事务
+
+### 分层
+
+```text
+agent/firewall.go          方法注册与流程编排（生成 → 校验 → 写文件 → 事务）
+    ├── pfrules/           规则集 → PF anchor 文本；文法与不变量校验
+    ├── firewalld/         应用事务状态机、超时回滚、崩溃恢复、pfctl 执行器
+    └── firewallstore/     规则与版本的持久化（SQLite）
+```
+
+`pfrules` 与 `firewalld` 都不依赖数据库，因此可以纯逻辑测试；
+`pfctl` 调用被 `PFApplier` 接口隔离，测试用 fake 替换。
+
+### 生成顺序（PF 是首个匹配即生效）
+
+```text
+pass quick on lo0 all                       ← 回环，必须最先
+pass in quick inet6 from ::1 to ::1         ← IPv6 回环
+pass out quick inet6 all keep state         ← 出站
+pass in quick inet6 proto ipv6-icmp ...     ← 必需 ICMPv6
+<用户规则，按 position 升序>
+block in quick inet6 on <iface> all         ← 默认拒绝，必须最后
+```
+
+顺序错了会怎样：若默认拒绝在前，用户的白名单规则永远匹配不到（`quick` 已终止评估）。
+
+### 为什么不用 `set skip on lo0`
+
+`set` 是主规则集的全局指令，**在 anchor 内无效**。用它会产生「看起来放行了 lo0，
+实际没生效」的假象。改用 `pass quick on lo0 all`，作用域限定在本 anchor 且效果等价。
+
+### 应用事务的状态机
+
+```text
+        Apply()                      Confirm()
+idle ──────────► pending ─────────────────────► confirmed
+                    │
+                    │ 超时 / 主动回滚 / 加载失败 / 重启后发现超时
+                    ▼
+               rolled_back  ◄── 清空 anchor（加载 /dev/null）
+                    ▲
+                    │ 加载失败且回滚也失败
+                 failed（需人工介入）
+```
+
+关键约束（每条都有测试）：
+
+- **先落盘再加载**：否则「加载成功但状态没写盘」时崩溃，机器会停在未确认规则上且永不回滚。
+- **Deadline 用绝对时间**：用剩余秒数会在重启后重置，等于无限延长未确认窗口。
+- **确认前检查超时**：超时后仍能确认的话，倒计时形同虚设。
+- **应用新规则前先回滚 pending**：避免两份未确认状态叠加。
+
+### pfctl 的三层限制
+
+| 层 | 限制 |
+| --- | --- |
+| `execx.allowedBinaries` | 只允许 `/sbin/pfctl` 等 5 个绝对路径 |
+| `execx.argGuards` | 只允许 `-s info/Anchors`、`-n -f`、`-a <anchor> -f`、`-a <anchor> -sr`；拒绝 `-d`/`-e`/`-F`/`-k`/`-x` |
+| `firewalld.PFExecutor` | anchor 名与文件路径在构造时校验；只允许本应用 anchor 与 `/dev/null` |
+
+为什么需要参数级：`pfctl` 既能 `-a <anchor> -f <file>`（安全），
+也能 `-d`（全局关闭防火墙）。只校验路径等于没限制。
+
+## 8. 已知限制（M1/M2）
 
 - PF 状态需要 root：非 root 运行 Agent 时只能报告「不可读」。
 - `/etc/pf.conf` 与 anchor 文件通常 0600 root:wheel，非 root 无法读取内容，
@@ -224,7 +288,11 @@ CHECK (port_from IS NULL OR port_to IS NULL OR port_from <= port_to)
 - APFS 上根卷与数据卷共享容器，容量数值可能相同，属系统真实语义。
 - 无指标历史聚合（`metric_samples` 已建表，M3 启用）。
 - 前端无自动化测试（仅类型检查 + 脚本化浏览器验证；覆盖对比度、溢出、交互流程）。
-- 前端包体积以组件库为主：gzip 约 243 kB，其中 Naive UI 占 187 kB。
+- 前端包体积以组件库为主：gzip 约 260 kB，其中 Naive UI 占 193 kB。
+- **PF 写入未实机验证**：`pfctl` 真实调用需 root，开发机不可用；
+  dry-run 模式覆盖了除真实加载外的全部链路。
+- **回滚 = 清空 anchor**，不恢复历史规则内容（只存哈希，不复制规则文件）。
+- **规则版本历史接口为占位**：`GET /firewall/revisions` 返回空列表。
 
 ## 9. 后续里程碑的架构预留
 

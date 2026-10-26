@@ -419,19 +419,141 @@ IPv6 防火墙只读状态。前端每 10 秒刷新。
 
 ---
 
+## M2：防火墙规则接口
+
+### GET /api/v1/firewall/rules
+
+返回规则集与当前事务状态。
+
+```json
+{
+  "ok": true,
+  "data": {
+    "rules": [
+      {
+        "id": 4, "name": "Caddy HTTPS", "description": "HTTPS 入口",
+        "position": 1, "action": "pass", "direction": "in", "protocol": "tcp",
+        "portFrom": 443, "portTo": 443,
+        "sourceCidr": "any", "interface": "any", "enabled": true,
+        "builtinTemplate": "caddy"
+      }
+    ],
+    "defaultDenyInterfaces": ["en0"],
+    "transaction": {
+      "phase": "pending", "revisionId": 7,
+      "contentHash": "…", "appliedAt": "…", "deadline": "…"
+    }
+  }
+}
+```
+
+`transaction.phase` 取值：`idle` / `pending` / `confirmed` / `rolled_back` / `failed`。
+
+### PUT /api/v1/firewall/rules
+
+整体替换规则集，返回新生成的预览。不触碰系统防火墙。
+
+请求体：`{ "rules": [...], "defaultDenyInterfaces": ["en0"] }`
+
+规则字段校验（不通过返回 400，并逐条列出问题）：
+
+| 字段 | 约束 |
+| --- | --- |
+| `name` | 非空，≤64 字符 |
+| `action` | `pass` / `block` |
+| `direction` | 仅 `in`（本应用只控制入站） |
+| `protocol` | `tcp` / `udp` / `icmp6` / `any` |
+| `portFrom`/`portTo` | 1–65535；`tcp`/`udp` 必填；`icmp6` 禁止填；两者都有时 from ≤ to |
+| `sourceCidr` | `any` 或 IPv6 CIDR（前缀 ≥ /16；拒绝 IPv4） |
+| `interface` | `any` 或接口名（小写字母+数字，≤15 字符） |
+
+`defaultDenyInterfaces` 不允许包含 `lo0`、`utun*`、`ipsec*`、`gif*`、`stf*`
+（会切断回环或隧道流量）。
+
+### POST /api/v1/firewall/preview
+
+生成 PF 文本但不写文件、不调 pfctl。
+
+请求体可选：`{ "ruleSet": { ... } }`（不传则用已保存的规则）。
+
+返回：
+
+```json
+{
+  "content": "# 由 HomeLab Manager 自动生成…
+pass quick on lo0 all
+…",
+  "ruleCount": 2,
+  "enforced": [
+    { "key": "loopback", "reason": "回环接口必须放行…", "rule": "pass quick on lo0 all" }
+  ],
+  "skipped": [{ "ruleId": 3, "name": "旧规则", "reason": "规则已禁用" }],
+  "verification": {
+    "ok": true,
+    "syntaxErrors": [],
+    "invariantViolations": [],
+    "stats": { "ruleLines": 8, "passRules": 7, "blockRules": 1, "inet6Rules": 7 }
+  }
+}
+```
+
+### POST /api/v1/firewall/apply
+
+**高风险**。必须带 `confirmsRisk: true`（或请求头 `X-HLM-Confirm-Risk: 1`），
+否则返回 400 且不触达 Agent。
+
+流程：生成 → 自校验不变量 → 写 anchor 文件 → `pfctl -n -f` 语法检查
+→ 快照当前 → 落盘 pending → 加载 → 返回 deadline。
+
+返回：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "revisionId": 7,
+    "contentHash": "…",
+    "appliedAt": "2026-10-26T02:16:26Z",
+    "deadline": "2026-10-26T02:17:26Z",
+    "confirmTimeoutSeconds": 60,
+    "warnings": ["无法读取当前生效规则快照，回滚能力受限"]
+  }
+}
+```
+
+### POST /api/v1/firewall/confirm
+
+确认当前 pending 配置。幂等。
+
+| 情况 | 状态 | code |
+| --- | --- | --- |
+| 成功 | 200 | — |
+| 无待确认配置 | 409 | `conflict` |
+| 已超过 deadline | 409 | `conflict`（并已自动回滚） |
+
+### POST /api/v1/firewall/rollback
+
+主动回滚。请求体可选 `{ "reason": "…" }`（≤200 字符）。
+
+回滚语义：清空本应用 anchor（加载 `/dev/null`），不影响其它程序。
+
+### GET /api/v1/firewall/transaction
+
+返回事务状态。**读操作会顺带检查超时**，因此即使后台定时器未运行，
+也能读到正确的 `rolled_back` 状态。
+
+### GET /api/v1/firewall/templates
+
+返回 5 个内置模板（Caddy / sish / Tailscale / EasyTier / SSH 限局域网）。
+每个模板带 `note` 字段，提示用户必须核实的点。
+
 ## 未实现接口（返回 501）
 
-以下接口在路由中显式注册，统一返回 `not_implemented`，
-用于让前端尽早暴露「功能未就绪」而不是静默失败：
+以下接口在路由中显式注册，统一返回 `not_implemented`：
 
 | 方法 | 路径 | 计划里程碑 |
 | --- | --- | --- |
-| GET | `/api/v1/firewall/rules` | M2 |
-| PUT | `/api/v1/firewall/rules` | M2 |
-| POST | `/api/v1/firewall/apply` | M2 |
-| POST | `/api/v1/firewall/confirm` | M2 |
-| POST | `/api/v1/firewall/rollback` | M2 |
-| GET | `/api/v1/schedules` | M3 |
+| GET/POST | `/api/v1/schedules` | M3 |
 | POST | `/api/v1/schedules` | M3 |
 | POST | `/api/v1/power/reboot` | M3 |
 | GET | `/api/v1/services` | M4 |
