@@ -38,6 +38,7 @@ var allowedBinaries = map[string]string{
 	"/bin/launchctl":         "launchd 服务查询与受管启停（参数级白名单见 launchctlGuard）",
 	"/sbin/shutdown":         "受控重启（参数级白名单见 shutdownGuard）",
 	"/usr/bin/plutil":        "校验 plist 语法（仅 -lint，只解析不安装）",
+	"/usr/sbin/netstat":      "网络路由与连接查询（仅 -rn/-an 只读形式）",
 }
 
 // argGuards 是「参数级」白名单，只对危险命令生效。
@@ -54,10 +55,11 @@ var allowedBinaries = map[string]string{
 //
 // 一旦 pfctl 进白名单，上述调用就都能发起。因此在参数层面再做一次限制。
 var argGuards = map[string]func(args []string) error{
-	"/sbin/pfctl":     pfctlGuard,
-	"/bin/launchctl":  launchctlGuard,
-	"/sbin/shutdown":  shutdownGuard,
-	"/usr/bin/plutil": plutilGuard,
+	"/sbin/pfctl":       pfctlGuard,
+	"/bin/launchctl":    launchctlGuard,
+	"/sbin/shutdown":    shutdownGuard,
+	"/usr/bin/plutil":   plutilGuard,
+	"/usr/sbin/netstat": netstatGuard,
 }
 
 // launchctlGuard 限制 launchctl 的子命令集合。
@@ -187,6 +189,63 @@ func plutilGuard(args []string) error {
 	}
 	if len(args) != 2 {
 		return fmt.Errorf("plutil -lint 只接受一个文件参数")
+	}
+	return nil
+}
+
+// netstatGuard 限制 netstat 只做只读查询。
+//
+// 允许的形式（本应用诊断需要的全部）：
+//
+//	-rn -f inet6    路由表
+//	-an -f inet6    全部连接（从中筛 LISTEN）
+//	-an -f inet     IPv4 连接（诊断对比用）
+//
+// netstat 还有 -d（删除路由）等写操作选项，必须封死。
+func netstatGuard(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("netstat 必须带参数")
+	}
+
+	// 明确禁止会改变系统状态的选项。
+	forbidden := map[string]string{
+		"-d":       "删除路由条目（会改变系统网络配置）",
+		"-fdelete": "删除路由条目",
+		"-nand":    "不在本应用职责内",
+	}
+	for _, a := range args {
+		if reason, bad := forbidden[a]; bad {
+			return fmt.Errorf("netstat %s 被禁止：%s", a, reason)
+		}
+	}
+
+	// 必须带家族限定，避免输出混杂。
+	hasFamily := false
+	for i, a := range args {
+		if a == "-f" && i+1 < len(args) {
+			fam := args[i+1]
+			if fam != "inet6" && fam != "inet" {
+				return fmt.Errorf("netstat -f 只允许 inet 或 inet6，实际 %q", fam)
+			}
+			hasFamily = true
+		}
+	}
+	if !hasFamily {
+		return fmt.Errorf("netstat 必须指定 -f inet 或 -f inet6")
+	}
+
+	hasRoute := false
+	hasAll := false
+	for _, a := range args {
+		switch a {
+		case "-rn", "-r":
+			hasRoute = true
+		case "-an", "-a":
+			hasAll = true
+		}
+	}
+	if !hasRoute && !hasAll {
+		return fmt.Errorf("netstat 只允许 -rn（路由）或 -an（连接）查询")
 	}
 	return nil
 }
