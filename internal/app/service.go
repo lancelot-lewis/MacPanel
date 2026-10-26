@@ -6,6 +6,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/lancelot-lewis/MacPanel/internal/agent"
 	"github.com/lancelot-lewis/MacPanel/internal/model"
@@ -69,4 +70,82 @@ func (s *Service) AgentHealthDetail(ctx context.Context) (model.AgentHealthRespo
 		return raw, err
 	}
 	return raw, nil
+}
+
+// FirewallRules 读取规则集与事务状态。
+func (s *Service) FirewallRules(ctx context.Context) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodFirewallRulesGet, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// FirewallRulesSave 保存规则集，返回新生成的预览。
+func (s *Service) FirewallRulesSave(ctx context.Context, ruleSet any) (json.RawMessage, error) {
+	var out json.RawMessage
+	params := map[string]any{"rules": ruleSet}
+	// rules.set 期望的是扁平的 RuleSet 结构，这里直接传规则集本身
+	if rs, ok := ruleSet.(map[string]any); ok {
+		params = rs
+	}
+	if err := s.client.Call(ctx, agent.MethodFirewallRulesSet, params, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// FirewallPreview 预览规则生成结果。
+func (s *Service) FirewallPreview(ctx context.Context, params any) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodFirewallPreview, params, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// FirewallApply 应用规则。
+func (s *Service) FirewallApply(ctx context.Context, params any) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodFirewallApply, params, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// FirewallConfirm 确认当前配置。
+func (s *Service) FirewallConfirm(ctx context.Context) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodFirewallConfirm, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// FirewallRollback 回滚配置。
+func (s *Service) FirewallRollback(ctx context.Context, reason string) (json.RawMessage, error) {
+	var out json.RawMessage
+	params := map[string]any{"reason": reason}
+	if err := s.client.Call(ctx, agent.MethodFirewallRollback, params, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// FirewallTransaction 查询事务状态。
+func (s *Service) FirewallTransaction(ctx context.Context) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodFirewallTransaction, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// FirewallTemplates 读取内置模板。
+func (s *Service) FirewallTemplates(ctx context.Context) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodFirewallTemplates, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

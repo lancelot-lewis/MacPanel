@@ -73,6 +73,14 @@ type Config struct {
 	// AllowRemote 为 true 时才允许监听非回环地址。默认 false。
 	AllowRemote bool
 
+	// PublicHosts 是反向代理/开发代理场景下额外允许的 Host（含端口）。
+	//
+	// 为什么需要：写请求会校验 Origin，而 Origin 是浏览器地址栏的 host。
+	// 若面板经反向代理以 https://homelab.example.com 暴露，Origin 就是它，
+	// 而后端只知道自己监听 127.0.0.1:7788 —— 此时所有 POST/PUT 都会被 403。
+	// 这里显式列出可信的外部访问地址，避免为了「能用」而放宽整个校验。
+	PublicHosts []string
+
 	// AllowedPeerUIDs 是允许连接 Agent Socket 的额外 UID。
 	// Agent 自身 euid 与 Server 的 euid 始终允许。空表示只信任本进程 euid。
 	AllowedPeerUIDs []uint32
@@ -112,6 +120,9 @@ func LoadFromEnv(mode Mode) (Config, error) {
 		}
 		cfg.AllowRemote = b
 	}
+	if v := os.Getenv("HLM_PUBLIC_HOSTS"); v != "" {
+		cfg.PublicHosts = splitAndTrim(v)
+	}
 	if v := os.Getenv("HLM_ALLOWED_PEER_UIDS"); v != "" {
 		uids, err := parseUIDList(v)
 		if err != nil {
@@ -123,6 +134,19 @@ func LoadFromEnv(mode Mode) (Config, error) {
 		return cfg, err
 	}
 	return cfg, nil
+}
+
+// splitAndTrim 按逗号切分并去空白，丢弃空项。
+func splitAndTrim(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func parseUIDList(raw string) ([]uint32, error) {

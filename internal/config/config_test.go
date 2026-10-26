@@ -273,3 +273,37 @@ func TestIsLoopbackListen(t *testing.T) {
 		}
 	}
 }
+
+// TestPublicHostsParsing 验证反向代理场景的额外 Host 配置。
+//
+// 这是实际踩过的坑：面板经代理以别的域名暴露时，写请求的 Origin
+// 是那个域名，而后端只知道自己监听 127.0.0.1 —— 所有 POST 都会被 403。
+func TestPublicHostsParsing(t *testing.T) {
+	t.Setenv("HLM_PUBLIC_HOSTS", " homelab.example.com:443 , localhost:5199 ,, ")
+
+	cfg, err := LoadFromEnv(ModeServer)
+	if err != nil {
+		t.Fatalf("加载配置失败: %v", err)
+	}
+
+	want := []string{"homelab.example.com:443", "localhost:5199"}
+	if len(cfg.PublicHosts) != len(want) {
+		t.Fatalf("应解析出 %d 项，实际 %d：%v", len(want), len(cfg.PublicHosts), cfg.PublicHosts)
+	}
+	for i, w := range want {
+		if cfg.PublicHosts[i] != w {
+			t.Errorf("第 %d 项应为 %q，实际 %q", i, w, cfg.PublicHosts[i])
+		}
+	}
+}
+
+// TestPublicHostsEmpty 验证未配置时不产生空字符串项。
+func TestPublicHostsEmpty(t *testing.T) {
+	cfg, err := LoadFromEnv(ModeServer)
+	if err != nil {
+		t.Fatalf("加载配置失败: %v", err)
+	}
+	if len(cfg.PublicHosts) != 0 {
+		t.Errorf("未配置时不应有额外 Host，实际 %v", cfg.PublicHosts)
+	}
+}

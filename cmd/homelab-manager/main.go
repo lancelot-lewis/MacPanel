@@ -159,12 +159,13 @@ func runServer(args []string) error {
 	}
 
 	srv := server.New(server.Options{
-		Config:  cfg,
-		Service: svc,
-		Audit:   auditStore,
-		Auth:    authMgr,
-		Logger:  log,
-		WebFS:   webFS,
+		Config:      cfg,
+		Service:     svc,
+		Audit:       auditStore,
+		Auth:        authMgr,
+		Logger:      log,
+		WebFS:       webFS,
+		PublicHosts: cfg.PublicHosts,
 	})
 
 	httpServer := &http.Server{
@@ -285,6 +286,23 @@ func runAgent(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// 装配 M2 防火墙能力。失败时降级为「只读可用、写入不可用」，
+	// 不阻断 Agent 启动——这比整体起不来更利于排障。
+	var fwWiring firewallWiring
+	if dbForFw, derr := database.Open(context.Background(), cfg.DatabasePath()); derr != nil {
+		log.Warn("防火墙能力不可用：数据库打开失败", "error", derr)
+	} else {
+		defer dbForFw.Close()
+		fwWiring = wireFirewall(context.Background(), cfg, log, dbForFw, *devMode)
+		if fwWiring.enabled {
+			ag.SetFirewallDeps(fwWiring.deps)
+			log.Info("防火墙读写能力已启用")
+		} else {
+			log.Warn("防火墙读写能力未启用", "reason", fwWiring.disabledWhy)
+		}
+	}
+
 	ag.RegisterAll(srv)
 
 	if err := srv.Listen(); err != nil {

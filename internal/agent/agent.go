@@ -33,6 +33,8 @@ type Agent struct {
 	log       *slog.Logger
 	startedAt time.Time
 	methods   []string
+	// fw 是 M2 防火墙能力依赖。为 nil 时相关方法返回「未实现」。
+	fw *FirewallDeps
 }
 
 // Options 构造参数。
@@ -53,13 +55,35 @@ func New(opts Options) (*Agent, error) {
 		collector: opts.Collector,
 		log:       opts.Logger,
 		startedAt: time.Now().UTC(),
-		methods: []string{
-			MethodHealth,
-			MethodSystemOverview,
-			MethodSystemNetwork,
-			MethodFirewallStatus,
-		},
+		// 方法列表的单一来源：全部在这里声明，RegisterAll 只负责注册。
+		// 曾经的写法是构造时列 4 个、registerFirewall 再 append 8 个，
+		// 导致 handleHealth 报出的方法与实际注册的方法可能不一致
+		// （取决于是否调用过 RegisterAll）。统一到一处可消除这类漂移。
+		methods: AllMethods(),
 	}, nil
+}
+
+// AllMethods 返回本 Agent 支持的全部方法名。
+//
+// 这是方法清单的唯一来源：RegisterAll 按它注册，
+// handleHealth 按它上报，测试按它校验。
+func AllMethods() []string {
+	return []string{
+		// M1：只读
+		MethodHealth,
+		MethodSystemOverview,
+		MethodSystemNetwork,
+		MethodFirewallStatus,
+		// M2：防火墙读写
+		MethodFirewallRulesGet,
+		MethodFirewallRulesSet,
+		MethodFirewallPreview,
+		MethodFirewallApply,
+		MethodFirewallConfirm,
+		MethodFirewallRollback,
+		MethodFirewallTransaction,
+		MethodFirewallTemplates,
+	}
 }
 
 // RegisterAll 把全部方法注册到 IPC 服务端。
@@ -68,6 +92,17 @@ func (a *Agent) RegisterAll(srv *ipc.Server) {
 	srv.Register(MethodSystemOverview, a.handleSystemOverview)
 	srv.Register(MethodSystemNetwork, a.handleSystemNetwork)
 	srv.Register(MethodFirewallStatus, a.handleFirewallStatus)
+
+	// M2 防火墙读写。方法总是注册（便于前端按能力探测），
+	// 依赖未就绪时由各自的 handler 返回「未实现」。
+	srv.Register(MethodFirewallRulesGet, a.handleRulesGet)
+	srv.Register(MethodFirewallRulesSet, a.handleRulesSet)
+	srv.Register(MethodFirewallPreview, a.handlePreview)
+	srv.Register(MethodFirewallApply, a.handleApply)
+	srv.Register(MethodFirewallConfirm, a.handleConfirm)
+	srv.Register(MethodFirewallRollback, a.handleRollback)
+	srv.Register(MethodFirewallTransaction, a.handleTransaction)
+	srv.Register(MethodFirewallTemplates, a.handleTemplates)
 }
 
 // Methods 返回已实现的方法名。

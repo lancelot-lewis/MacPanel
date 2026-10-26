@@ -33,11 +33,12 @@ func TestHealth(t *testing.T) {
 	if resp.Version == "" {
 		t.Error("版本不应为空")
 	}
-	if resp.MethodCount != 4 {
-		t.Errorf("方法数应为 4，实际 %d", resp.MethodCount)
+	want := len(AllMethods())
+	if resp.MethodCount != want {
+		t.Errorf("方法数应为 %d，实际 %d", want, resp.MethodCount)
 	}
-	if len(resp.Methods) != 4 {
-		t.Errorf("方法列表长度应为 4，实际 %d", len(resp.Methods))
+	if len(resp.Methods) != want {
+		t.Errorf("方法列表长度应为 %d，实际 %d", want, len(resp.Methods))
 	}
 	if resp.PID <= 0 {
 		t.Error("PID 应大于 0")
@@ -50,10 +51,20 @@ func TestMethodsAreWhitelisted(t *testing.T) {
 	methods := a.Methods()
 
 	allowed := map[string]bool{
+		// M1 只读
 		MethodHealth:         true,
 		MethodSystemOverview: true,
 		MethodSystemNetwork:  true,
 		MethodFirewallStatus: true,
+		// M2 防火墙读写
+		MethodFirewallRulesGet:    true,
+		MethodFirewallRulesSet:    true,
+		MethodFirewallPreview:     true,
+		MethodFirewallApply:       true,
+		MethodFirewallConfirm:     true,
+		MethodFirewallRollback:    true,
+		MethodFirewallTransaction: true,
+		MethodFirewallTemplates:   true,
 	}
 	for _, m := range methods {
 		if !allowed[m] {
