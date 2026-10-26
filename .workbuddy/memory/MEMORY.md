@@ -170,3 +170,57 @@ Vite 开发需 `HLM_PUBLIC_HOSTS=localhost:5199` + 代理 `changeOrigin: true`�
 | Caddy 模板放行 81–442 端口 | 把「80 和 443」误写成 PF 范围 `80:443`（安全缺陷） |
 | 生产代理下写请求全 403 | `PublicHosts` 是死代码，从未从配置注入 |
 | 开发模式所有 API 报 Host 不允许 | Vite `changeOrigin: false` 未改写 Host |
+
+## M3/M4/M6：功能已全部完成（2026-10-26 晚）
+
+**范围**：M0–M4 + M6 代码完成，M5（安装验证）与实机验证未做。
+368 个测试通过，合计覆盖率 54.5%。
+
+### 分层地图（找代码先看这里）
+
+```text
+M3  internal/schedule（纯逻辑，80%）→ taskstore → tasksched → launchd
+    cmd/homelab-manager/task-run   launchd 触发的执行入口
+M4  services（扫描/分类/控制器）→ servicestore（受管白名单）
+M6  darwin/diag（TCP+路由+监听） / orbstack（Docker Socket 只读）
+```
+
+### 必须知道的环境事实（实测）
+
+| 事实 | 影响 |
+| --- | --- |
+| **`launchctl list` 在 macOS 27 返回空 + 退出码 1** | 服务列表必须用 `launchctl print system` 解析 services 段 |
+| netstat 协议列有 `tcp6/tcp46/udp6/udp46` 四种 | 只匹配 tcp6 会漏掉双栈监听（最常见形态） |
+| 某些受限环境 `netstat -an` 只返回 multipath 段 | 必须检查标志性标题行，否则会把「读不到」显示成「0 个」 |
+| 本机 macOS 27 上 `pfctl` 在 `/sbin`，`vm_stat` 在 `/usr/bin` | 已修正，别再用 `/usr/sbin/pfctl` |
+| 本机存在 `com.homelab.ipv6` launchd 服务 | **不是本项目创建的**，本项目用 `com.homelab.manager.*` |
+
+### 四条设计约束（改动时别破坏）
+
+1. **调度时间只有一个时钟源**。定时器用 `s.now()` 而不是 `time.Until`。
+   混用会把「10 分钟后重启」变成「立即重启」（测试暴露过）。
+2. **待执行重启必须落盘**，且恢复时先判断「系统是否已重启过」——
+   已重启过则清除记录，否则会「重启后再重启」。
+3. **服务启停三道拦截**：`model.Validate`（路径/前缀）→
+   `ValidateLabelForControl`（拒绝关键/自身）→ `Controller`
+   （只用登记过的 plist 路径）。任一道都不能省。
+4. **诊断结论不合并**：`refused`（服务没起来）与 `timeout`
+   （防火墙丢弃）必须分开，修复动作完全不同。
+
+### 本阶段踩过的坑（都不是编译错误）
+
+| 现象 | 根因 |
+| --- | --- |
+| 任务创建成功但 launchd 里没东西 | dev 用相对路径 + 同步失败只写日志 → 改为预校验 buildSpec |
+| 「10 分钟后重启」立即执行 | 定时器混用真实时钟与注入时钟 |
+| `ddns-go` 在服务列表消失 | 标签校验要求「必须含点」，而 launchd 允许无点 |
+| 已登记服务显示成「未登记」 | `Enrich` 只有一个集合，未区分登记/授权 |
+| 「每天重启都失败」与实际相反 | 重启杀掉进程留下的 running 记录被一律标失败 |
+| OrbStack Status 报的 socket 与实际不符 | 构造函数创建了两个 Client 实例 |
+| 任务表单填对却提交不了 | 前端回传了 `createdAt: ""`，Go 的 time 解析失败 |
+
+### dev 模式的边界（别混用）
+
+`-dev` 下：plist 写到 `.dev/launchd`（绝对路径）、`fake.Power` 只记录不执行、
+Service Controller **仍装配**（但非 root 时能力受限）。
+`task-run --dev` 强制用 fake power——这个开关是硬的，不依赖权限判断。
