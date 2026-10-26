@@ -2,6 +2,9 @@ import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import './style.css'
+// 注意：必须在 style.css 之后导入，让主题模块里的 applyToDOM 生效
+import './theme/mode'
+import { installNaive } from './theme/components'
 
 import OverviewPage from './pages/OverviewPage.vue'
 import FirewallPage from './pages/FirewallPage.vue'
@@ -31,4 +34,9 @@ router.afterEach((to) => {
   document.title = title ? `${title} · HomeLab 管理面板` : 'HomeLab 管理面板'
 })
 
-createApp(App).use(router).mount('#app')
+// 按需注册 Naive UI 组件（见 theme/components.ts 的说明）。
+// 不用 app.use(naive)：全量注册会让 27 个之外的组件也进包，实测多出约 1.1 MB。
+const app = createApp(App)
+app.use(router)
+installNaive(app)
+app.mount('#app')

@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { onMounted, watch } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { zhCN, dateZhCN } from 'naive-ui'
 import { store } from './stores/app'
+import { naiveOverrides, naiveTheme } from './theme/mode'
 import AppShell from './layouts/AppShell.vue'
 
 const router = useRouter()
@@ -29,12 +31,29 @@ watch(
     }
   },
 )
+
+const isLogin = computed(() => router.currentRoute.value.name === 'login')
 </script>
 
 <template>
-  <RouterView v-slot="{ Component, route }">
-    <AppShell>
-      <component :is="Component" v-if="Component" :key="route.path" />
-    </AppShell>
-  </RouterView>
+  <!-- 全局主题注入：组件库主题与 CSS 变量由同一响应式来源驱动，
+       避免出现「卡片深色、底色浅色」的撕裂。 -->
+  <NConfigProvider
+    :theme="naiveTheme"
+    :theme-overrides="naiveOverrides"
+    :locale="zhCN"
+    :date-locale="dateZhCN"
+  >
+    <NMessageProvider :max="3" placement="top">
+      <NDialogProvider>
+        <RouterView v-slot="{ Component, route }">
+          <!-- 登录页不套管理布局 -->
+          <component :is="Component" v-if="Component && isLogin" :key="route.path" />
+          <AppShell v-else-if="Component">
+            <component :is="Component" :key="route.path" />
+          </AppShell>
+        </RouterView>
+      </NDialogProvider>
+    </NMessageProvider>
+  </NConfigProvider>
 </template>

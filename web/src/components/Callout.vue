@@ -1,50 +1,59 @@
 <script setup lang="ts">
-// 统一的状态提示块。用于「不可用 / 未实现 / 模拟数据」等场景，
-// 强调「不伪造状态」这一产品原则。
+// 提示块：基于 NAlert 封装，统一种子与文案风格。
+//
+// 相比直接用 NAlert，这里多做三件事：
+// 1. 固定 tone → type 的映射，避免各页面各写一套；
+// 2. 支持 badge（如「只读」「M1」）——用来标注阶段与能力边界；
+// 3. 默认不留关闭按钮：这些提示是状态说明而非可忽略的通知，
+//    用户关掉后就看不到「PF 不可读不等于已关闭」这种关键信息了。
+
+import { computed } from 'vue'
+
 type Tone = 'info' | 'warn' | 'danger' | 'ok'
 
 const props = withDefaults(
   defineProps<{
     tone?: Tone
     title?: string
-    // 明确标记数据质量问题时使用，例如 unavailable
     badge?: string
+    /** 允许关闭时传 true，仅用于真正的临时通知 */
+    closable?: boolean
   }>(),
-  { tone: 'info', title: '', badge: '' },
+  { tone: 'info', title: '', badge: '', closable: false },
 )
 
-const toneClass = {
-  info: 'bg-[color-mix(in_oklab,var(--color-accent)_8%,transparent)] border-[color-mix(in_oklab,var(--color-accent)_30%,transparent)]',
-  warn: 'bg-[color-mix(in_oklab,var(--color-warn)_12%,transparent)] border-[color-mix(in_oklab,var(--color-warn)_38%,transparent)]',
-  danger:
-    'bg-[color-mix(in_oklab,var(--color-danger)_10%,transparent)] border-[color-mix(in_oklab,var(--color-danger)_35%,transparent)]',
-  ok: 'bg-[color-mix(in_oklab,var(--color-ok)_10%,transparent)] border-[color-mix(in_oklab,var(--color-ok)_32%,transparent)]',
-} as const
-
-const badgeClass = {
-  info: 'bg-[var(--color-accent)] text-white',
-  warn: 'bg-[var(--color-warn)] text-black',
-  danger: 'bg-[var(--color-danger)] text-white',
-  ok: 'bg-[var(--color-ok)] text-white',
-} as const
+const alertType = computed(() => {
+  switch (props.tone) {
+    case 'warn':
+      return 'warning' as const
+    case 'danger':
+      return 'error' as const
+    case 'ok':
+      return 'success' as const
+    default:
+      return 'info' as const
+  }
+})
 </script>
 
 <template>
-  <div class="rounded-lg border px-3.5 py-3 text-[13px] leading-relaxed" :class="toneClass[props.tone]">
-    <div class="flex items-start gap-2">
-      <span
-        v-if="badge"
-        class="mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
-        :class="badgeClass[props.tone]"
-      >
-        {{ badge }}
+  <NAlert :type="alertType" :bordered="true" :closable="closable" class="hlm-alert">
+    <template #header>
+      <span class="inline-flex items-center gap-2">
+        <NTag v-if="badge" size="small" :bordered="false" :type="alertType" strong>
+          {{ badge }}
+        </NTag>
+        <span v-if="title">{{ title }}</span>
       </span>
-      <div class="min-w-0 flex-1">
-        <p v-if="title" class="m-0 font-semibold">{{ title }}</p>
-        <div :class="title ? 'mt-1 opacity-85' : ''">
-          <slot />
-        </div>
-      </div>
-    </div>
-  </div>
+    </template>
+    <slot />
+  </NAlert>
 </template>
+
+<style scoped>
+/* 内容区行高放宽：技术说明文字比一般通知长，紧凑排版会难读 */
+.hlm-alert :deep(.n-alert-body__content) {
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+</style>

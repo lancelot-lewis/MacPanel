@@ -1,22 +1,105 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+// 应用骨架：侧边栏 + 顶栏 + 内容区。
+//
+// 用 NLayout / NLayoutSider / NMenu 而不是手写 div：
+// NMenu 自带键盘导航、焦点管理与无障碍语义，手写这些很容易出错，
+// 而管理面板是长期自用的工具，键盘效率很重要。
+//
+// 移动端不用 NDrawer 而是收成顶部下拉菜单：
+// 侧栏只有 5 项，抽屉的额外层级反而增加操作步数。
+
+import { computed, h, onMounted, ref } from 'vue'
+import type { VNodeChild } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { NIcon, useDialog, useMessage } from 'naive-ui'
+import type { MenuOption } from 'naive-ui'
 import { store } from '../stores/app'
+import { followingSystem, mode, setMode, toggleMode } from '../theme/mode'
 
 const route = useRoute()
 const router = useRouter()
-const mobileNavOpen = ref(false)
+const message = useMessage()
+const dialog = useDialog()
 
-const nav = [
-  { name: 'overview', path: '/', label: '概览' },
-  { name: 'firewall', path: '/firewall', label: 'IPv6 防火墙' },
-  { name: 'network', path: '/network', label: '网络诊断' },
-  { name: 'audit', path: '/audit', label: '操作审计' },
-  { name: 'settings', path: '/settings', label: '设置' },
-]
+const collapsed = ref(false)
 
-// 登录页不套用管理布局。
-const isLogin = computed(() => route.name === 'login')
+// 用内联 SVG 而非图标库：只有 5 个图标，不值得引入额外依赖。
+// 返回 VNode 数组（h('svg', props, children) 的 children 形态）。
+function renderIcon(children: VNodeChild[]) {
+  return () =>
+    h(NIcon, null, {
+      default: () =>
+        h(
+          'svg',
+          {
+            viewBox: '0 0 24 24',
+            fill: 'none',
+            stroke: 'currentColor',
+            'stroke-width': 1.8,
+            'stroke-linecap': 'round',
+            'stroke-linejoin': 'round',
+            width: 16,
+            height: 16,
+          },
+          children,
+        ),
+    })
+}
+
+const iconPaths: Record<string, VNodeChild[]> = {
+  overview: [
+    h('path', { d: 'M3 12l9-8 9 8' }),
+    h('path', { d: 'M5 10v10h14V10' }),
+  ],
+  firewall: [
+    h('path', { d: 'M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z' }),
+    h('path', { d: 'M9 12l2 2 4-4' }),
+  ],
+  network: [
+    h('circle', { cx: 12, cy: 12, r: 9 }),
+    h('path', { d: 'M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18' }),
+  ],
+  audit: [h('path', { d: 'M4 5h16v14H4z' }), h('path', { d: 'M8 9h8M8 13h5' })],
+  settings: [
+    h('circle', { cx: 12, cy: 12, r: 3 }),
+    h('path', {
+      d: 'M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1A1.6 1.6 0 007 19.4a1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H1a2 2 0 110-4h.1A1.6 1.6 0 003.6 7a1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H8a1.6 1.6 0 001-1.5V1a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V8a1.6 1.6 0 001.5 1H23a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z',
+    }),
+  ],
+}
+
+const menuOptions = computed<MenuOption[]>(() => [
+  {
+    label: () => h(RouterLink, { to: '/' }, () => '概览'),
+    key: '/',
+    icon: renderIcon(iconPaths.overview!),
+  },
+  {
+    label: () => h(RouterLink, { to: '/firewall' }, () => 'IPv6 防火墙'),
+    key: '/firewall',
+    icon: renderIcon(iconPaths.firewall!),
+  },
+  {
+    label: () => h(RouterLink, { to: '/network' }, () => '网络诊断'),
+    key: '/network',
+    icon: renderIcon(iconPaths.network!),
+  },
+  {
+    label: () => h(RouterLink, { to: '/audit' }, () => '操作审计'),
+    key: '/audit',
+    icon: renderIcon(iconPaths.audit!),
+  },
+  {
+    label: () => h(RouterLink, { to: '/settings' }, () => '设置'),
+    key: '/settings',
+    icon: renderIcon(iconPaths.settings!),
+  },
+])
+
+const activeKey = computed(() => route.path)
+
+// 移动端下拉菜单
+const mobileMenuOpen = ref(false)
 
 const accessLabel = computed(() => {
   const auth = store.state.auth
@@ -24,148 +107,187 @@ const accessLabel = computed(() => {
   return auth.mode === 'local' ? '仅本机访问' : '远程访问'
 })
 
-const agentBadge = computed(() => {
+const agentStatus = computed(() => {
   const meta = store.state.meta
-  if (!meta) return { text: 'Agent 状态未知', tone: 'muted' as const }
-  if (!meta.agentReachable) return { text: 'Agent 不可达', tone: 'danger' as const }
-  return { text: 'Agent 正常', tone: 'ok' as const }
+  if (!meta) return { text: 'Agent 状态未知', type: 'default' as const }
+  if (!meta.agentReachable) return { text: 'Agent 不可达', type: 'error' as const }
+  return { text: 'Agent 正常', type: 'success' as const }
 })
+
+const themeIcon = computed(() => (mode.value === 'dark' ? '🌙' : '☀️'))
 
 onMounted(() => {
   if (!store.state.auth) void store.loadAuth()
   if (!store.state.meta) void store.loadMeta()
 })
 
-function closeNav() {
-  mobileNavOpen.value = false
-}
-
 async function handleLogout() {
   await store.logout()
   void router.push('/login')
 }
+
+function confirmLogout() {
+  dialog.warning({
+    title: '退出登录',
+    content: '退出后需要重新输入密码才能访问远程面板。',
+    positiveText: '退出',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      void handleLogout()
+    },
+  })
+}
+
+function cycleTheme() {
+  toggleMode()
+  message.success(`已切换为${mode.value === 'dark' ? '深色' : '浅色'}模式`, { duration: 1500 })
+}
 </script>
 
 <template>
-  <!-- 登录页：极简容器 -->
-  <div v-if="isLogin" class="min-h-dvh">
-    <slot />
-  </div>
-
-  <!-- 管理界面 -->
-  <div v-else class="flex min-h-dvh flex-col lg:flex-row">
-    <!-- 侧边栏（桌面）/ 顶部栏 + 抽屉（移动） -->
-    <aside
-      class="shrink-0 border-b border-[var(--color-border-subtle)] bg-[var(--color-surface)] lg:w-56 lg:border-r lg:border-b-0"
-    >
-      <div class="flex items-center justify-between px-4 py-3 lg:py-4">
-        <div class="flex items-center gap-2">
+  <NLayout has-sider class="min-h-dvh">
+    <!-- 侧边栏（仅桌面）。用外层 div 控制显隐：
+         NLayoutSider 自身是 flex 元素，直接加 hidden/lg:block 会被组件样式覆盖。 -->
+    <div class="hidden shrink-0 lg:block">
+      <NLayoutSider
+        bordered
+        collapse-mode="width"
+        :collapsed-width="56"
+        :width="200"
+        :collapsed="collapsed"
+        show-trigger
+        class="h-full"
+        @collapse="collapsed = true"
+        @expand="collapsed = false"
+      >
+      <div class="flex h-full flex-col">
+        <!-- 品牌区 -->
+        <div class="flex items-center gap-2 px-4 py-4">
           <div
-            class="grid size-7 place-items-center rounded-md text-[11px] font-bold text-white"
-            style="background: var(--color-accent)"
+            class="grid size-7 shrink-0 place-items-center rounded-md text-[11px] font-bold text-white"
+            :style="{ background: 'var(--color-brand-mark)' }"
             aria-hidden="true"
           >
             HL
           </div>
-          <div class="leading-tight">
-            <div class="text-[13px] font-semibold">HomeLab 管理</div>
-            <div class="text-[10px] text-[var(--color-text-secondary)]">{{ accessLabel }}</div>
+          <div v-if="!collapsed" class="min-w-0 leading-tight">
+            <div class="truncate text-[13px] font-semibold">HomeLab 管理</div>
+            <div
+              class="truncate text-[10.5px]"
+              :style="{ color: 'var(--color-text-secondary)' }"
+            >
+              {{ accessLabel }}
+            </div>
           </div>
         </div>
-        <button
-          type="button"
-          class="rounded p-1.5 text-[var(--color-text-secondary)] hover:bg-black/5 lg:hidden dark:hover:bg-white/10"
-          :aria-expanded="mobileNavOpen"
-          aria-controls="main-nav"
-          aria-label="切换导航菜单"
-          @click="mobileNavOpen = !mobileNavOpen"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" />
-          </svg>
-        </button>
-      </div>
 
-      <nav
-        id="main-nav"
-        class="px-2 pb-2 lg:pb-4"
-        :class="mobileNavOpen ? 'block' : 'hidden lg:block'"
-        aria-label="主导航"
-      >
-        <RouterLink
-          v-for="item in nav"
-          :key="item.name"
-          :to="item.path"
-          class="mb-0.5 flex items-center rounded-md px-2.5 py-2 text-[13px] transition-colors"
-          :class="
-            route.path === item.path
-              ? 'bg-[color-mix(in_oklab,var(--color-accent)_12%,transparent)] font-medium text-[var(--color-accent)]'
-              : 'text-[var(--color-text-primary)] hover:bg-black/5 dark:hover:bg-white/5'
-          "
-          :aria-current="route.path === item.path ? 'page' : undefined"
-          @click="closeNav"
-        >
-          {{ item.label }}
-        </RouterLink>
-      </nav>
-    </aside>
+        <NMenu
+          :value="activeKey"
+          :options="menuOptions"
+          :collapsed="collapsed"
+          :collapsed-width="56"
+          :collapsed-icon-size="18"
+          class="flex-1"
+        />
 
-    <div class="flex min-w-0 flex-1 flex-col">
-      <!-- 顶部状态条 -->
-      <header
-        class="flex items-center justify-between gap-3 border-b border-[var(--color-border-subtle)] px-4 py-2.5"
-      >
-        <h1 class="m-0 text-[15px] font-semibold">{{ route.meta.title ?? '' }}</h1>
-        <div class="flex items-center gap-2">
-          <span
-            class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium"
-            :style="{
-              background: `color-mix(in oklab, var(--color-${agentBadge.tone === 'ok' ? 'ok' : agentBadge.tone === 'danger' ? 'danger' : 'text-secondary'}) 12%, transparent)`,
-              color:
-                agentBadge.tone === 'ok'
-                  ? 'var(--color-ok)'
-                  : agentBadge.tone === 'danger'
-                    ? 'var(--color-danger)'
-                    : 'var(--color-text-secondary)',
-            }"
-          >
-            <span
-              class="size-1.5 rounded-full"
-              :style="{
-                background:
-                  agentBadge.tone === 'ok'
-                    ? 'var(--color-ok)'
-                    : agentBadge.tone === 'danger'
-                      ? 'var(--color-danger)'
-                      : 'var(--color-text-secondary)',
-              }"
-              aria-hidden="true"
-            />
-            {{ agentBadge.text }}
-          </span>
-
-          <button
-            v-if="store.state.auth?.mode === 'remote' && store.state.auth.authenticated"
-            type="button"
-            class="rounded-md border border-[var(--color-border-subtle)] px-2.5 py-1 text-[12px] hover:bg-black/5 dark:hover:bg-white/5"
-            @click="handleLogout"
+        <!-- 底部：主题切换 + 退出 -->
+        <div class="border-t px-2 py-2" :style="{ borderColor: 'var(--color-border-subtle)' }">
+          <NButton quaternary block :title="`切换主题（当前${mode === 'dark' ? '深色' : '浅色'}）`" @click="cycleTheme">
+            <template #icon>{{ themeIcon }}</template>
+            <template v-if="!collapsed">主题</template>
+          </NButton>
+          <NButton
+            v-if="!collapsed && store.state.auth?.mode === 'remote' && store.state.auth.authenticated"
+            quaternary
+            block
+            class="mt-1"
+            @click="confirmLogout"
           >
             退出登录
-          </button>
+          </NButton>
         </div>
-      </header>
+        </div>
+      </NLayoutSider>
+    </div>
 
-      <main class="min-w-0 flex-1 p-4 lg:p-6">
+    <NLayout>
+      <!-- 顶栏 -->
+      <div
+        class="flex items-center justify-between gap-3 border-b px-4 py-2.5"
+        :style="{
+          borderColor: 'var(--color-border-subtle)',
+          background: 'var(--color-surface)',
+        }"
+      >
+        <div class="flex min-w-0 items-center gap-2">
+          <!-- 移动端：菜单下拉 -->
+          <NDropdown
+            v-model:show="mobileMenuOpen"
+            :options="menuOptions"
+            trigger="click"
+            placement="bottom-start"
+            class="lg:hidden"
+          >
+            <NButton quaternary size="small" aria-label="打开导航菜单">
+              <template #icon>
+                <NIcon :size="18">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" />
+                  </svg>
+                </NIcon>
+              </template>
+            </NButton>
+          </NDropdown>
+          <h1 class="m-0 truncate text-[15px] font-semibold">{{ route.meta.title ?? '' }}</h1>
+        </div>
+
+        <div class="flex shrink-0 items-center gap-2">
+          <NTag :type="agentStatus.type" size="small" :bordered="false" round>
+            <template #icon>
+              <span
+                class="inline-block size-1.5 rounded-full"
+                :style="{
+                  background:
+                    agentStatus.type === 'success'
+                      ? 'var(--color-ok)'
+                      : agentStatus.type === 'error'
+                        ? 'var(--color-danger)'
+                        : 'var(--color-text-tertiary)',
+                }"
+              />
+            </template>
+            {{ agentStatus.text }}
+          </NTag>
+          <NButton quaternary size="small" class="lg:hidden" aria-label="切换主题" @click="cycleTheme">
+            {{ themeIcon }}
+          </NButton>
+        </div>
+      </div>
+
+      <!-- 内容区 -->
+      <div class="p-4 lg:p-6">
         <slot />
-      </main>
+      </div>
 
-      <footer
-        class="px-4 py-3 text-[11px] text-[var(--color-text-secondary)] lg:px-6"
+      <!-- 页脚 -->
+      <div
         v-if="store.state.meta"
+        class="px-4 pb-4 text-[11px] lg:px-6"
+        :style="{ color: 'var(--color-text-tertiary)' }"
       >
         服务端 {{ store.state.meta.server.version }} · Go {{ store.state.meta.server.goVersion }} ·
         {{ store.state.meta.server.platform }} · 监听 {{ store.state.meta.access.listenAddr }}
-      </footer>
-    </div>
-  </div>
+        <template v-if="followingSystem"> · 主题跟随系统</template>
+        <NButton
+          v-if="!followingSystem"
+          text
+          size="tiny"
+          class="ml-1"
+          @click="setMode(null)"
+        >
+          恢复跟随系统
+        </NButton>
+      </div>
+    </NLayout>
+  </NLayout>
 </template>

@@ -1,26 +1,63 @@
 @import 'tailwindcss';
 
-/* 设计令牌：中性灰阶 + 单一强调色。深色模式由 prefers-color-scheme 驱动，
-   避免引入额外的主题切换状态。 */
+/* 设计令牌（单一来源）。
+   色值与 src/theme/index.ts 的 brand 常量保持一致：
+   组件库通过 themeOverrides 取值，布局与自有组件通过这里取 CSS 变量。
+   改颜色时两处都要改——这是刻意的，避免主题漂移。 */
 @theme {
-  --color-surface: oklch(100% 0 0);
-  --color-surface-raised: oklch(98.5% 0.002 250);
-  --color-border-subtle: oklch(92% 0.004 250);
-  --color-text-primary: oklch(24% 0.01 250);
-  --color-text-secondary: oklch(52% 0.012 250);
-  --color-accent: oklch(55% 0.16 255);
-  --color-ok: oklch(58% 0.14 155);
-  --color-warn: oklch(72% 0.15 75);
-  --color-danger: oklch(58% 0.19 25);
-  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro SC', 'PingFang SC',
-    'Helvetica Neue', Arial, sans-serif;
+  --color-surface: #ffffff;
+  --color-surface-raised: #fafbfc;
+  --color-surface-sunken: #f4f6f8;
+  --color-border-subtle: #e4e6ea;
+  --color-border-strong: #d3d7de;
+  --color-text-primary: #2b2f36;
+  --color-text-secondary: #535862;
+  /* tertiary 原为 #7d838d，在白底上仅 3.82:1，低于 WCAG AA 4.5。
+     加深到 #666c76（约 4.9:1），仍明显弱于 secondary，层次不变。 */
+  --color-text-tertiary: #666c76;
+  --color-accent: #2f6fed;
+  --color-accent-soft: rgba(47, 111, 237, 0.1);
+  /* 品牌标识底色：固定深蓝，不随主题变化，保证白字对比度 >=6:1。
+     直接用 accent 作底色时，深色模式下 accent 变亮会让白字降到 2.7:1。 */
+  --color-brand-mark: #2359c9;
+  --color-ok: #1f9d55;
+  --color-warn: #d98a00;
+  --color-danger: #b82f2f;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro SC', 'PingFang SC', 'Helvetica Neue', Arial,
+    sans-serif;
   --font-mono: 'SF Mono', ui-monospace, Menlo, monospace;
+}
+
+/* 深色令牌。用 html.dark 类而非 @media：
+   Naive UI 需要显式传入 darkTheme，由 <NConfigProvider> 判断当前模式后
+   同步给 document.documentElement，两者才能一致。 */
+html.dark {
+  --color-surface: #1a1e25;
+  --color-surface-raised: #12151a;
+  --color-surface-sunken: #151920;
+  --color-border-subtle: #2d333c;
+  --color-border-strong: #3a414c;
+  --color-text-primary: #e8eaee;
+  --color-text-secondary: #a8aeb8;
+  --color-text-tertiary: #8b93a0;
+  --color-accent: #6b9bff;
+  --color-accent-soft: rgba(107, 155, 255, 0.14);
+  --color-brand-mark: #2359c9;
+  --color-ok: #3ecf7f;
+  --color-warn: #e8a33d;
+  --color-danger: #ef6b6b;
 }
 
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
     background-color: var(--color-surface-raised);
+    color-scheme: light dark;
+  }
+
+  html.dark {
+    color-scheme: dark;
   }
 
   body {
@@ -31,23 +68,7 @@
     -webkit-font-smoothing: antialiased;
   }
 
-  /* 深色模式：整体反相，保持对比度。 */
-  @media (prefers-color-scheme: dark) {
-    html,
-    body {
-      background-color: oklch(18% 0.008 250);
-      color: oklch(94% 0.005 250);
-    }
-    :root {
-      --color-surface: oklch(23% 0.008 250);
-      --color-surface-raised: oklch(18% 0.008 250);
-      --color-border-subtle: oklch(32% 0.008 250);
-      --color-text-primary: oklch(94% 0.005 250);
-      --color-text-secondary: oklch(70% 0.01 250);
-    }
-  }
-
-  /* 尊重用户的减少动效偏好。 */
+  /* 尊重用户的减少动效偏好 */
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
@@ -61,33 +82,55 @@
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }
+
+  /* 等宽数字：表格与指标数字对齐，避免跳动 */
+  .mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
 }
 
 @layer components {
-  .card {
-    background-color: var(--color-surface);
-    border: 1px solid var(--color-border-subtle);
-    border-radius: 0.75rem;
+  /* 自有布局容器（非 Naive UI 组件，用于页面骨架） */
+  .page-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
   }
 
-  .card-title {
+  .page-narrow {
+    max-width: 64rem; /* 约 1024px，管理面板不需要更宽 */
+    margin-inline: auto;
+    width: 100%;
+  }
+
+  /* 页面小标题：比 Naive UI 的 Card 标题更克制 */
+  .section-label {
     font-size: 0.8125rem;
     font-weight: 600;
     letter-spacing: 0.02em;
     color: var(--color-text-secondary);
     text-transform: uppercase;
   }
+}
 
-  .stat-value {
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    font-size: 1.375rem;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-  }
+/* ---- Naive UI 局部可访问性修补 ----
+   这些是组件库内置样式，无法通过 themeOverrides 覆盖，
+   只能用作用域 CSS 提升对比度。集中放这里，便于升级组件库时复查。 */
 
-  .mono {
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-  }
+/* 输入框 placeholder：深色下 rgba(255,255,255,0.38) 仅 3.57:1。
+   提到 0.6 后约 5.6:1，仍明显弱于正式输入文本（保持视觉层次）。 */
+.n-input .n-input__placeholder,
+.n-input .n-input__placeholder span,
+.n-base-selection .n-base-selection-placeholder {
+  color: var(--color-text-tertiary) !important;
+  opacity: 1 !important;
+}
+
+/* 表单必填星号：Naive 用 errorColor 原色，浅色下 4.38:1 略低。
+   加粗到 700 后按 WCAG「大字号」以外的标准仍需 4.5，
+   这里改用更深的红以确保达标。 */
+.n-form-item-label__asterisk {
+  color: var(--color-danger) !important;
+  font-weight: 700;
 }
