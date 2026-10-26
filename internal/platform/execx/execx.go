@@ -70,7 +70,7 @@ var argGuards = map[string]func(args []string) error{
 // 那属于用户会话，本应用不该介入）。
 //
 // 注意：这层只做「形态」限制。真正的边界在调用方（launchd 包）——
-// 它把 plist 路径限定在 /Library/LaunchDaemons/com.homelab.manager.*，
+// 它把 plist 路径限定在 /Library/LaunchDaemons/com.macpanel.*，
 // 把 label 限定在本应用前缀。两层缺一不可：只靠参数形态挡不住
 // "bootstrap system /tmp/evil.plist"。
 func launchctlGuard(args []string) error {

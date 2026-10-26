@@ -55,7 +55,7 @@ func (m ManagedService) Validate() error {
 	if strings.HasPrefix(label, "com.apple.") {
 		return NewError(CodeInvalidArgument, "不允许登记系统关键服务：%s", label)
 	}
-	if strings.HasPrefix(label, "com.homelab.manager.") {
+	if strings.HasPrefix(label, "com.macpanel.") {
 		return NewError(CodeInvalidArgument, "不允许登记本应用自身的服务：%s", label)
 	}
 

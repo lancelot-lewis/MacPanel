@@ -1,4 +1,4 @@
-// Command homelab-manager 是 HomeLab 管理面板的统一入口。
+// Command macpanel 是 MacPanel 管理面板的统一入口。
 //
 // 子命令：
 //
@@ -84,10 +84,10 @@ func run(args []string) error {
 }
 
 func printUsage() {
-	fmt.Print(`homelab-manager — macOS HomeLab 管理面板
+	fmt.Print(`macpanel — MacPanel 管理面板（macOS）
 
 用法:
-  homelab-manager <子命令> [选项]
+  macpanel <子命令> [选项]
 
 子命令:
   server      启动 Web 服务（默认仅监听 127.0.0.1，非特权）
@@ -99,16 +99,16 @@ func printUsage() {
   firewall    防火墙状态查看与本地回滚（不经 IPC，救援用）
 
 环境变量:
-  HLM_LISTEN_ADDR        监听地址，默认 127.0.0.1:7788
-  HLM_ALLOW_REMOTE       是否允许远程访问（true/false，默认 false）
-  HLM_SOCKET_PATH        Agent Socket 路径
-  HLM_TOKEN_PATH         IPC 令牌文件路径
-  HLM_DATA_DIR           数据目录（SQLite）
-  HLM_LOG_DIR            日志目录
-  HLM_ANCHOR_PATH        PF anchor 规则文件路径
-  HLM_ALLOWED_PEER_UIDS  额外允许的 IPC 对端 UID（逗号分隔）
-  HLM_LOG_LEVEL          日志级别（debug/info/warn/error）
-  HLM_USE_FAKE_COLLECTOR 设为 1 时使用模拟采集器（仅用于开发/演示）
+  MACPANEL_LISTEN_ADDR        监听地址，默认 127.0.0.1:7788
+  MACPANEL_ALLOW_REMOTE       是否允许远程访问（true/false，默认 false）
+  MACPANEL_SOCKET_PATH        Agent Socket 路径
+  MACPANEL_TOKEN_PATH         IPC 令牌文件路径
+  MACPANEL_DATA_DIR           数据目录（SQLite）
+  MACPANEL_LOG_DIR            日志目录
+  MACPANEL_ANCHOR_PATH        PF anchor 规则文件路径
+  MACPANEL_ALLOWED_PEER_UIDS  额外允许的 IPC 对端 UID（逗号分隔）
+  MACPANEL_LOG_LEVEL          日志级别（debug/info/warn/error）
+  MACPANEL_USE_FAKE_COLLECTOR 设为 1 时使用模拟采集器（仅用于开发/演示）
 `)
 }
 
@@ -127,7 +127,7 @@ func runServer(args []string) error {
 	}
 
 	log, cleanup, err := logger.New(logger.Options{
-		Level:     envOr("HLM_LOG_LEVEL", "info"),
+		Level:     envOr("MACPANEL_LOG_LEVEL", "info"),
 		Dir:       cfg.LogDir,
 		Component: "server",
 	})
@@ -256,7 +256,7 @@ func runAgent(args []string) error {
 	}
 
 	log, cleanup, err := logger.New(logger.Options{
-		Level:     envOr("HLM_LOG_LEVEL", "info"),
+		Level:     envOr("MACPANEL_LOG_LEVEL", "info"),
 		Dir:       cfg.LogDir,
 		Component: "agent",
 	})
@@ -271,7 +271,7 @@ func runAgent(args []string) error {
 	}
 
 	var collector platform.Collector
-	if envOr("HLM_USE_FAKE_COLLECTOR", "") == "1" {
+	if envOr("MACPANEL_USE_FAKE_COLLECTOR", "") == "1" {
 		log.Warn("使用模拟采集器：所有状态数据均为假数据，仅用于开发")
 		collector = fake.New()
 	} else {

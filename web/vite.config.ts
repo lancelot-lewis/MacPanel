@@ -3,8 +3,8 @@ import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 
 // 开发模式下把 /api 代理到本地 Go 服务，避免跨域。
-// 默认端口 7788，可通过 HLM_DEV_BACKEND 覆盖。
-const backend = process.env.HLM_DEV_BACKEND || 'http://127.0.0.1:7788'
+// 默认端口 7788，可通过 MACPANEL_DEV_BACKEND 覆盖。
+const backend = process.env.MACPANEL_DEV_BACKEND || 'http://127.0.0.1:7788'
 
 export default defineConfig({
   plugins: [vue(), tailwindcss()],

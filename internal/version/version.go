@@ -38,5 +38,5 @@ func Current() Info {
 
 // String 便于 CLI 输出。
 func (i Info) String() string {
-	return fmt.Sprintf("homelab-manager %s (commit %s, built %s, %s)", i.Version, i.Commit, i.BuildTime, i.Platform)
+	return fmt.Sprintf("macpanel %s (commit %s, built %s, %s)", i.Version, i.Commit, i.BuildTime, i.Platform)
 }

@@ -37,7 +37,7 @@ const router = createRouter({
 
 router.afterEach((to) => {
   const title = (to.meta.title as string | undefined) ?? ''
-  document.title = title ? `${title} · HomeLab 管理面板` : 'HomeLab 管理面板'
+  document.title = title ? `${title} · MacPanel 管理面板` : 'MacPanel 管理面板'
 })
 
 // 按需注册 Naive UI 组件（见 theme/components.ts 的说明）。

@@ -1,12 +1,12 @@
 #!/bin/bash
 #
-# HomeLab Manager 卸载脚本
+# MacPanel 卸载脚本
 #
 # 用法：
-#   sudo homelab-manager-uninstall            # 交互式（数据与日志默认保留）
-#   sudo homelab-manager-uninstall --yes      # 非交互：全部保留
-#   sudo homelab-manager-uninstall --purge    # 非交互：删除数据与日志
-#   sudo homelab-manager-uninstall --help
+#   sudo macpanel-uninstall            # 交互式（数据与日志默认保留）
+#   sudo macpanel-uninstall --yes      # 非交互：全部保留
+#   sudo macpanel-uninstall --purge    # 非交互：删除数据与日志
+#   sudo macpanel-uninstall --help
 #
 # 安全原则（改动本脚本时不要破坏）：
 #   - 绝不执行 pfctl -d：那会全局关闭整机防火墙
@@ -15,31 +15,31 @@
 #   - 数据与日志默认保留，删除必须显式要求
 #
 # 卸载前如果曾用过 IPv6 防火墙，请先在面板里停用规则，或执行
-# `sudo homelab-manager firewall unload`，让本应用先退出 PF。
+# `sudo macpanel firewall unload`，让本应用先退出 PF。
 
 set -uo pipefail
 
-DATA_DIR="/Library/Application Support/HomeLabManager"
-LOG_DIR="/Library/Logs/HomeLabManager"
-RUN_DIR="/var/run/homelab-manager"
-ANCHOR="/etc/pf.anchors/com.homelab.manager.ipv6"
-ANCHOR_NAME="com.homelab.manager.ipv6"
+DATA_DIR="/Library/Application Support/MacPanel"
+LOG_DIR="/Library/Logs/MacPanel"
+RUN_DIR="/var/run/macpanel"
+ANCHOR="/etc/pf.anchors/com.macpanel.ipv6"
+ANCHOR_NAME="com.macpanel.ipv6"
 
-AGENT_PLIST="/Library/LaunchDaemons/com.homelab.manager.agent.plist"
-SERVER_PLIST="/Library/LaunchDaemons/com.homelab.manager.server.plist"
+AGENT_PLIST="/Library/LaunchDaemons/com.macpanel.agent.plist"
+SERVER_PLIST="/Library/LaunchDaemons/com.macpanel.server.plist"
 
 ASSUME_YES=0
 PURGE=0
 
 usage() {
 	cat <<'USAGE'
-HomeLab Manager 卸载脚本
+MacPanel 卸载脚本
 
 用法:
-  sudo homelab-manager-uninstall              交互式：数据与日志默认保留
-  sudo homelab-manager-uninstall --yes        非交互：全部保留
-  sudo homelab-manager-uninstall --purge      非交互：连数据与日志一起删除
-  sudo homelab-manager-uninstall --help       显示本说明
+  sudo macpanel-uninstall              交互式：数据与日志默认保留
+  sudo macpanel-uninstall --yes        非交互：全部保留
+  sudo macpanel-uninstall --purge      非交互：连数据与日志一起删除
+  sudo macpanel-uninstall --help       显示本说明
 
 安全边界（本脚本绝不越界）:
   · 不关闭 PF（从不调用 pfctl -d）
@@ -120,15 +120,15 @@ if [[ -f "${ANCHOR}" ]]; then
 fi
 
 echo "==> 移除可执行文件"
-rm -f /usr/local/bin/homelab-manager
-rm -f /usr/local/bin/homelab-manager-uninstall
+rm -f /usr/local/bin/macpanel
+rm -f /usr/local/bin/macpanel-uninstall
 
 # 打包时 macOS 可能给 payload 带上 com.apple.provenance，pkgbuild 会顺带
 # 生成 ._xxx AppleDouble 记录一并安装。这里清理本应用路径下的那几个。
-rm -f /usr/local/bin/._homelab-manager /usr/local/bin/._homelab-manager-uninstall
+rm -f /usr/local/bin/._macpanel /usr/local/bin/._macpanel-uninstall
 rm -f /Library/._LaunchDaemons
-rm -f /Library/LaunchDaemons/._com.homelab.manager.agent.plist
-rm -f /Library/LaunchDaemons/._com.homelab.manager.server.plist
+rm -f /Library/LaunchDaemons/._com.macpanel.agent.plist
+rm -f /Library/LaunchDaemons/._com.macpanel.server.plist
 
 echo "==> 移除运行时目录"
 rm -rf "${RUN_DIR}"

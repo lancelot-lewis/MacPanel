@@ -122,8 +122,8 @@ func (c *Collector) FirewallStatus(ctx context.Context) (model.FirewallStatus, e
 			Detail:        "模拟数据（fake collector）",
 		},
 		Anchor: model.AnchorInfo{
-			Name:       "com.homelab.manager.ipv6",
-			RulePath:   "/etc/pf.anchors/com.homelab.manager.ipv6",
+			Name:       "com.macpanel.ipv6",
+			RulePath:   "/etc/pf.anchors/com.macpanel.ipv6",
 			State:      model.AnchorAbsent,
 			Present:    false,
 			Referenced: false,

@@ -26,13 +26,13 @@ const (
 
 // 系统级安装路径。PKG 安装器会把文件放到这些位置；开发环境用 DefaultDev* 覆盖。
 const (
-	SystemConfigDir  = "/Library/Application Support/HomeLabManager"
-	SystemDataDir    = "/Library/Application Support/HomeLabManager/data"
-	SystemLogDir     = "/Library/Logs/HomeLabManager"
-	SystemRunDir     = "/var/run/homelab-manager"
+	SystemConfigDir  = "/Library/Application Support/MacPanel"
+	SystemDataDir    = "/Library/Application Support/MacPanel/data"
+	SystemLogDir     = "/Library/Logs/MacPanel"
+	SystemRunDir     = "/var/run/macpanel"
 	SystemSocketPath = SystemRunDir + "/agent.sock"
 	SystemTokenPath  = SystemConfigDir + "/ipc.token"
-	SystemAnchorName = "com.homelab.manager.ipv6"
+	SystemAnchorName = "com.macpanel.ipv6"
 	SystemAnchorPath = "/etc/pf.anchors/" + SystemAnchorName
 )
 
@@ -89,41 +89,41 @@ type Config struct {
 	ServeWeb bool
 }
 
-// LoadFromEnv 在 Defaults 基础上叠加 HLM_* 环境变量，然后执行校验。
+// LoadFromEnv 在 Defaults 基础上叠加 MACPANEL_* 环境变量，然后执行校验。
 func LoadFromEnv(mode Mode) (Config, error) {
 	cfg := Defaults()
 	cfg.Mode = mode
 	cfg.ServeWeb = true
 
-	if v := os.Getenv("HLM_LISTEN_ADDR"); v != "" {
+	if v := os.Getenv("MACPANEL_LISTEN_ADDR"); v != "" {
 		cfg.ListenAddr = v
 	}
-	if v := os.Getenv("HLM_SOCKET_PATH"); v != "" {
+	if v := os.Getenv("MACPANEL_SOCKET_PATH"); v != "" {
 		cfg.SocketPath = v
 	}
-	if v := os.Getenv("HLM_TOKEN_PATH"); v != "" {
+	if v := os.Getenv("MACPANEL_TOKEN_PATH"); v != "" {
 		cfg.TokenPath = v
 	}
-	if v := os.Getenv("HLM_DATA_DIR"); v != "" {
+	if v := os.Getenv("MACPANEL_DATA_DIR"); v != "" {
 		cfg.DataDir = v
 	}
-	if v := os.Getenv("HLM_LOG_DIR"); v != "" {
+	if v := os.Getenv("MACPANEL_LOG_DIR"); v != "" {
 		cfg.LogDir = v
 	}
-	if v := os.Getenv("HLM_ANCHOR_PATH"); v != "" {
+	if v := os.Getenv("MACPANEL_ANCHOR_PATH"); v != "" {
 		cfg.AnchorPath = v
 	}
-	if v := os.Getenv("HLM_ALLOW_REMOTE"); v != "" {
+	if v := os.Getenv("MACPANEL_ALLOW_REMOTE"); v != "" {
 		b, err := strconv.ParseBool(v)
 		if err != nil {
-			return cfg, fmt.Errorf("HLM_ALLOW_REMOTE 不是合法布尔值: %q", v)
+			return cfg, fmt.Errorf("MACPANEL_ALLOW_REMOTE 不是合法布尔值: %q", v)
 		}
 		cfg.AllowRemote = b
 	}
-	if v := os.Getenv("HLM_PUBLIC_HOSTS"); v != "" {
+	if v := os.Getenv("MACPANEL_PUBLIC_HOSTS"); v != "" {
 		cfg.PublicHosts = splitAndTrim(v)
 	}
-	if v := os.Getenv("HLM_ALLOWED_PEER_UIDS"); v != "" {
+	if v := os.Getenv("MACPANEL_ALLOWED_PEER_UIDS"); v != "" {
 		uids, err := parseUIDList(v)
 		if err != nil {
 			return cfg, err
@@ -159,7 +159,7 @@ func parseUIDList(raw string) ([]uint32, error) {
 		}
 		n, err := strconv.ParseUint(p, 10, 32)
 		if err != nil {
-			return nil, fmt.Errorf("HLM_ALLOWED_PEER_UIDS 含非法 UID %q", p)
+			return nil, fmt.Errorf("MACPANEL_ALLOWED_PEER_UIDS 含非法 UID %q", p)
 		}
 		out = append(out, uint32(n))
 	}
@@ -218,7 +218,7 @@ func validateListenAddr(addr string, allowRemote bool) error {
 	if host == "" || host == "0.0.0.0" || host == "::" {
 		if !allowRemote {
 			return fmt.Errorf("ListenAddr=%q 会监听所有网卡，但未开启远程访问；"+
-				"如需远程访问请显式设置 HLM_ALLOW_REMOTE=true 并完成认证配置", addr)
+				"如需远程访问请显式设置 MACPANEL_ALLOW_REMOTE=true 并完成认证配置", addr)
 		}
 		return nil
 	}
@@ -252,7 +252,7 @@ func (c *Config) IsLoopbackListen() bool {
 
 // DatabasePath 返回 SQLite 文件路径。
 func (c *Config) DatabasePath() string {
-	return filepath.Join(c.DataDir, "homelab.db")
+	return filepath.Join(c.DataDir, "macpanel.db")
 }
 
 // NormalizedListenAddr 把 localhost 换成 127.0.0.1，便于日志与监听一致。

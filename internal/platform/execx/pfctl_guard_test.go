@@ -38,10 +38,10 @@ func TestPFctlGuardAllowsExpectedCalls(t *testing.T) {
 	allowed := [][]string{
 		{"-s", "info"},
 		{"-s", "Anchors"},
-		{"-n", "-f", "/etc/pf.anchors/com.homelab.manager.ipv6"},
-		{"-a", "com.homelab.manager.ipv6", "-f", "/etc/pf.anchors/com.homelab.manager.ipv6"},
-		{"-a", "com.homelab.manager.ipv6", "-f", "/dev/null"},
-		{"-a", "com.homelab.manager.ipv6", "-sr"},
+		{"-n", "-f", "/etc/pf.anchors/com.macpanel.ipv6"},
+		{"-a", "com.macpanel.ipv6", "-f", "/etc/pf.anchors/com.macpanel.ipv6"},
+		{"-a", "com.macpanel.ipv6", "-f", "/dev/null"},
+		{"-a", "com.macpanel.ipv6", "-sr"},
 	}
 
 	for _, args := range allowed {

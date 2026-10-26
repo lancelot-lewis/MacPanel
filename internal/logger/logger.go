@@ -37,7 +37,7 @@ func New(opts Options) (*slog.Logger, func() error, error) {
 		}
 		name := opts.Component
 		if name == "" {
-			name = "homelab-manager"
+			name = "macpanel"
 		}
 		f, err := os.OpenFile(
 			strings.TrimRight(opts.Dir, "/")+"/"+name+".log",

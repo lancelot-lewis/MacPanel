@@ -292,7 +292,7 @@ function scopeTagType(scope: string) {
           :style="{ color: 'var(--color-text-tertiary)' }"
         >
           只能检测本机地址（回环或本机已配置的地址）。检测外部地址需要显式开启
-          <code class="mono">HLM_ALLOW_NONLOCAL_PROBE</code>。
+          <code class="mono">MACPANEL_ALLOW_NONLOCAL_PROBE</code>。
         </div>
       </PanelCard>
 

@@ -137,7 +137,7 @@ func newTestEnv(t *testing.T, allowRemote bool) *testEnv {
 		firewall: model.FirewallStatus{
 			Managed:     model.StateNotConfigured,
 			PF:          model.PFInfo{State: "unknown", ReadAvailable: false, ReadError: "permission denied"},
-			Anchor:      model.AnchorInfo{Name: "com.homelab.manager.ipv6", State: model.AnchorAbsent},
+			Anchor:      model.AnchorInfo{Name: "com.macpanel.ipv6", State: model.AnchorAbsent},
 			CollectedAt: time.Now().UTC(),
 			Writable:    false,
 		},

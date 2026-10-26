@@ -16,19 +16,19 @@
 
 ```bash
 # 完整状态（Agent + 系统 + 防火墙）
-homelab-manager status
+macpanel status
 
 # 机器可读输出（便于脚本与粘贴到问题报告）
-homelab-manager status --json
+macpanel status --json
 
 # 查看生效配置（不启动任何服务，只打印并校验）
-homelab-manager config -mode server
-homelab-manager config -mode agent
+macpanel config -mode server
+macpanel config -mode agent
 
 # 防火墙状态与本地回滚（不经 IPC，面板打不开时也能用）
-sudo homelab-manager firewall status
-sudo homelab-manager firewall rollback
-sudo homelab-manager firewall unload
+sudo macpanel firewall status
+sudo macpanel firewall rollback
+sudo macpanel firewall unload
 ```
 
 `status` 的行为：
@@ -52,7 +52,7 @@ sudo homelab-manager firewall unload
 
 ```bash
 # 1. Server 进程是否在跑？
-launchctl print system/com.homelab.manager.server | head -30
+launchctl print system/com.macpanel.server | head -30
 
 # 2. 端口是否在监听？
 lsof -nP -iTCP:7788 -sTCP:LISTEN
@@ -61,8 +61,8 @@ lsof -nP -iTCP:7788 -sTCP:LISTEN
 curl -s http://127.0.0.1:7788/api/v1/healthz
 
 # 4. 看日志
-tail -50 /Library/Logs/HomeLabManager/server.stderr.log
-tail -50 /Library/Logs/HomeLabManager/server.log
+tail -50 /Library/Logs/MacPanel/server.stderr.log
+tail -50 /Library/Logs/MacPanel/server.log
 ```
 
 若 `healthz` 有响应但页面空白：前端资源未正确嵌入，检查安装包是否为
@@ -72,25 +72,25 @@ tail -50 /Library/Logs/HomeLabManager/server.log
 
 ```bash
 # 1. Agent 服务状态
-launchctl print system/com.homelab.manager.agent | head -30
+launchctl print system/com.macpanel.agent | head -30
 
 # 2. Socket 文件是否存在、权限是否正确
-ls -l /var/run/homelab-manager/agent.sock
+ls -l /var/run/macpanel/agent.sock
 # 期望：srw-rw---- root:<组> 
 
 # 3. 令牌文件是否存在、权限是否正确
-ls -l "/Library/Application Support/HomeLabManager/ipc.token"
+ls -l "/Library/Application Support/MacPanel/ipc.token"
 # 期望：-rw-r----- root:<组>
 
 # 4. Agent 日志
-tail -50 /Library/Logs/HomeLabManager/agent.stderr.log
+tail -50 /Library/Logs/MacPanel/agent.stderr.log
 ```
 
 常见原因与处置：
 
 | 现象 | 原因 | 处置 |
 | --- | --- | --- |
-| Socket 不存在 | Agent 未启动 / 启动即退出 | 看 stderr 日志；`launchctl kickstart -k system/com.homelab.manager.agent` |
+| Socket 不存在 | Agent 未启动 / 启动即退出 | 看 stderr 日志；`launchctl kickstart -k system/com.macpanel.agent` |
 | Socket 权限不是 0660 | 目录或文件被手工改动 | 恢复 `chmod 0660`，目录 `0750` |
 | 报「已有实例在监听」 | 重复启动 | 先 `launchctl bootout` 旧实例 |
 | 报「路径已存在且不是 Socket」 | 该路径被普通文件占用 | 确认内容后再手工移走（程序不会自行删除） |
@@ -100,12 +100,12 @@ tail -50 /Library/Logs/HomeLabManager/agent.stderr.log
 
 ```bash
 # 重新生成（会覆盖旧令牌，必须同时重启两个服务）
-sudo /usr/local/bin/homelab-manager token -force
-sudo chown root:_homelab "/Library/Application Support/HomeLabManager/ipc.token"
-sudo chmod 0640 "/Library/Application Support/HomeLabManager/ipc.token"
+sudo /usr/local/bin/macpanel token -force
+sudo chown root:_macpanel "/Library/Application Support/MacPanel/ipc.token"
+sudo chmod 0640 "/Library/Application Support/MacPanel/ipc.token"
 
-sudo launchctl kickstart -k system/com.homelab.manager.agent
-sudo launchctl kickstart -k system/com.homelab.manager.server
+sudo launchctl kickstart -k system/com.macpanel.agent
+sudo launchctl kickstart -k system/com.macpanel.server
 ```
 
 注意：`token -force` 会立即让旧令牌失效，期间 Server 调用会失败。
@@ -116,14 +116,14 @@ sudo launchctl kickstart -k system/com.homelab.manager.server
 
 ```bash
 # 直接清除密码哈希，然后用本机浏览器重新设置
-sudo sqlite3 "/Library/Application Support/HomeLabManager/data/homelab.db" \
+sudo sqlite3 "/Library/Application Support/MacPanel/data/macpanel.db" \
   "DELETE FROM settings WHERE key = 'auth.password_hash';"
 
 # 同时撤销所有会话，避免残留登录态
-sudo sqlite3 "/Library/Application Support/HomeLabManager/data/homelab.db" \
+sudo sqlite3 "/Library/Application Support/MacPanel/data/macpanel.db" \
   "UPDATE auth_sessions SET revoked_at = datetime('now') WHERE revoked_at IS NULL;"
 
-sudo launchctl kickstart -k system/com.homelab.manager.server
+sudo launchctl kickstart -k system/com.macpanel.server
 ```
 
 之后在**本机**打开 `http://127.0.0.1:7788` → 设置 → 设置密码。
@@ -133,21 +133,21 @@ sudo launchctl kickstart -k system/com.homelab.manager.server
 
 ```bash
 # 1. 先停服务，避免写入竞争
-sudo launchctl bootout system/com.homelab.manager.server
+sudo launchctl bootout system/com.macpanel.server
 
 # 2. 检查完整性
-sqlite3 "/Library/Application Support/HomeLabManager/data/homelab.db" "PRAGMA integrity_check;"
+sqlite3 "/Library/Application Support/MacPanel/data/macpanel.db" "PRAGMA integrity_check;"
 
 # 3. 备份现场
-sudo cp "/Library/Application Support/HomeLabManager/data/homelab.db" \
-        "/Library/Application Support/HomeLabManager/data/homelab.db.corrupt.$(date +%s)"
+sudo cp "/Library/Application Support/MacPanel/data/macpanel.db" \
+        "/Library/Application Support/MacPanel/data/macpanel.db.corrupt.$(date +%s)"
 
 # 4. 尝试导出可读数据
-sqlite3 homelab.db.corrupt.* ".dump" > /tmp/recover.sql 2>/dev/null
+sqlite3 macpanel.db.corrupt.* ".dump" > /tmp/recover.sql 2>/dev/null
 
 # 5. 最坏情况：删除后重建（会丢失审计与设置，防火墙规则不受影响）
-sudo rm -f "/Library/Application Support/HomeLabManager/data/homelab.db"*
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.manager.server.plist
+sudo rm -f "/Library/Application Support/MacPanel/data/macpanel.db"*
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.macpanel.server.plist
 ```
 
 数据库只存配置、审计与指标；**删除它不会改变任何系统防火墙状态**。
@@ -163,7 +163,7 @@ sudo pfctl -s Anchors
 ```
 
 若 Agent 以 root 运行仍显示不可读，检查 launchd plist 中的 `UserName` 是否为 `root`，
-以及 `launchctl print system/com.homelab.manager.agent` 输出中的运行身份。
+以及 `launchctl print system/com.macpanel.agent` 输出中的运行身份。
 
 ### 3.7 端口 7788 被占用
 
@@ -171,15 +171,15 @@ sudo pfctl -s Anchors
 lsof -nP -iTCP:7788 -sTCP:LISTEN
 ```
 
-改端口：编辑 `/Library/LaunchDaemons/com.homelab.manager.server.plist` 中的
-`HLM_LISTEN_ADDR`，然后：
+改端口：编辑 `/Library/LaunchDaemons/com.macpanel.server.plist` 中的
+`MACPANEL_LISTEN_ADDR`，然后：
 
 ```bash
-sudo launchctl bootout system /Library/LaunchDaemons/com.homelab.manager.server.plist
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.manager.server.plist
+sudo launchctl bootout system /Library/LaunchDaemons/com.macpanel.server.plist
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.macpanel.server.plist
 ```
 
-注意：非回环地址必须同时设置 `HLM_ALLOW_REMOTE=true`，否则启动时会直接报错退出
+注意：非回环地址必须同时设置 `MACPANEL_ALLOW_REMOTE=true`，否则启动时会直接报错退出
 （这是安全不变量，不是缺陷）。
 
 ### 3.8 规则导致失联（最紧急）
@@ -192,14 +192,14 @@ sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.manager.serve
 
 ```bash
 # 1. 先看发生了什么（纯只读，永远不会改动系统）
-sudo /usr/local/bin/homelab-manager firewall status
+sudo /usr/local/bin/macpanel firewall status
 
 # 2. 存在待确认配置时用回滚（幂等，重复执行无害）
-sudo /usr/local/bin/homelab-manager firewall rollback
+sudo /usr/local/bin/macpanel firewall rollback
 
 # 3. 若 2 提示「当前没有已应用的配置可回滚」，说明状态文件已失效或从未建立，
 #    但 anchor 里可能仍有本应用的规则残留 —— 用 unload 无条件清空
-sudo /usr/local/bin/homelab-manager firewall unload
+sudo /usr/local/bin/macpanel firewall unload
 ```
 
 三条命令的边界（这也是它们能安全使用的原因）：
@@ -207,7 +207,7 @@ sudo /usr/local/bin/homelab-manager firewall unload
 | 行为 | 说明 |
 | --- | --- |
 | 不经过 IPC 与 Web Server | Agent 未运行、端口被挡住时依然可用 |
-| 只操作本应用 anchor | `pfctl -a com.homelab.manager.ipv6 -f /dev/null` |
+| 只操作本应用 anchor | `pfctl -a com.macpanel.ipv6 -f /dev/null` |
 | 绝不执行 `pfctl -d` | 不会全局关闭 PF，其它程序的规则不受影响 |
 | 不删除规则文件 | 内容保留，可事后检查当初写了什么 |
 | 非 root 自动 dry-run | 输出与真实流程一致但不改系统，可用于预演 |
@@ -235,7 +235,7 @@ ping6 -c 2 ::1
 nc -6 -z -w 2 <本机公网 IPv6> 22 && echo "外部可达" || echo "仍不可达"
 
 # 2. 先看这版规则做了什么（规则文件不会被删除）
-sudo pfctl -a com.homelab.manager.ipv6 -sr
+sudo pfctl -a com.macpanel.ipv6 -sr
 
 # 3. 在面板里改好再应用；先加一条允许自己 SSH 来源的规则
 ```
@@ -253,8 +253,8 @@ sudo /path/to/uninstall.sh
 该脚本会：
 
 1. `launchctl bootout` 两个服务并删除 plist；
-2. 删除 `/usr/local/bin/homelab-manager`；
-3. 删除 `/var/run/homelab-manager`；
+2. 删除 `/usr/local/bin/macpanel`；
+3. 删除 `/var/run/macpanel`；
 4. **保留** anchor 文件，并明确提示「需先移除 /etc/pf.conf 引用」；
 5. 询问是否删除数据与日志（默认保留）。
 
@@ -263,8 +263,8 @@ sudo /path/to/uninstall.sh
 若曾启用 PF 规则（M2 之后），卸载前应先让本应用退出 PF：
 
 ```bash
-sudo homelab-manager firewall unload     # 清空本应用 anchor
-sudo pfctl -a com.homelab.manager.ipv6 -sr  # 确认为空
+sudo macpanel firewall unload     # 清空本应用 anchor
+sudo pfctl -a com.macpanel.ipv6 -sr  # 确认为空
 ```
 
 再移除 `/etc/pf.conf` 中的引用并 `sudo pfctl -f /etc/pf.conf`，最后执行卸载脚本。

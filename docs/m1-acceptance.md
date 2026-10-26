@@ -19,7 +19,7 @@
 ### 关键文件
 
 ```text
-cmd/homelab-manager/main.go            统一入口（server/agent/status/token/config）
+cmd/macpanel/main.go            统一入口（server/agent/status/token/config）
 internal/ipc/{protocol,frame,server,client,peer_*}.go   IPC 协议与身份验证
 internal/platform/execx/execx.go       白名单命令执行
 internal/platform/darwin/{system,firewall,statfs_darwin}.go  只读采集
@@ -158,7 +158,7 @@ npm run build               类型检查通过，产物 143.80 kB (gzip 52.22 kB
 | --- | --- |
 | `plutil -lint` 两个 plist | 均 OK ✅ |
 | `make build` | 产出 11 MB 二进制 ✅ |
-| PKG 构建 | `HomeLabManager-0.1.0.pkg`，4.6 MB ✅ |
+| PKG 构建 | `MacPanel-0.1.0.pkg`，4.6 MB ✅ |
 | PKG 载荷检查 | 仅 3 个文件（二进制 + 2 个 plist），属主 wheel ✅ |
 | 二进制内嵌前端 | 可离线提供完整 UI ✅ |
 
@@ -168,7 +168,7 @@ npm run build               类型检查通过，产物 143.80 kB (gzip 52.22 kB
 并加 `COPYFILE_DISABLE=1` + `xattr -cr` 防 AppleDouble 污染。
 
 同时修正版本号策略：原用 `git describe --always` 导致包名变成
-`HomeLabManager-c86977a.pkg`，改为优先取 tag，无 tag 时回落 `0.1.0`。
+`MacPanel-c86977a.pkg`，改为优先取 tag，无 tag 时回落 `0.1.0`。
 
 ## 4. 过程中发现并修复的缺陷
 
@@ -176,7 +176,7 @@ npm run build               类型检查通过，产物 143.80 kB (gzip 52.22 kB
 
 ### 缺陷 1：远程模式下无法设置初始密码（死锁）
 
-- **现象**：`HLM_ALLOW_REMOTE=true` 时，`POST /auth/password` 永远返回 401
+- **现象**：`MACPANEL_ALLOW_REMOTE=true` 时，`POST /auth/password` 永远返回 401
   「请先登录」，而登录又需要密码 → 远程模式永久不可用。
 - **原因**：该路由注册在认证中间件之外（初始设置必须允许未登录），
   handler 内用 `sessionFrom(ctx)` 判断授权，但 context 中永远没有会话。
@@ -211,7 +211,7 @@ npm run build               类型检查通过，产物 143.80 kB (gzip 52.22 kB
 | --- | --- | --- |
 | Web 可读取 Agent 的真实只读状态 | ✅ | 3.1 真实数据表 |
 | 权限隔离通过 | ✅ | 非特权 Server / root Agent 分离；IPC 对端 UID + 令牌 |
-| Web Server 专用非特权用户 | ✅ 设计 + 打包脚本 | plist 指定 `UserName=_homelab`（待 M5 实装验证） |
+| Web Server 专用非特权用户 | ✅ 设计 + 打包脚本 | plist 指定 `UserName=_macpanel`（待 M5 实装验证） |
 | Root Agent 仅执行受控操作 | ✅ | 4 个固定只读方法；`execx` 白名单 5 个命令 |
 | 无人值守（不依赖登录） | ✅ 设计 | LaunchDaemons（非 LaunchAgents）+ `RunAtLoad` |
 | 故障可恢复 | ✅ 文档 | `docs/recovery.md` 覆盖 7 类故障 |
@@ -229,7 +229,7 @@ npm run build               类型检查通过，产物 143.80 kB (gzip 52.22 kB
    `anchor.referenced=false` 不代表确认未引用。
 3. **本机已存在 `/etc/pf.anchors/com.homelab.ipv6`**（2026-10-26 07:37 创建，
    691 字节，root:wheel 0600）——**不是本项目创建的**。本项目使用的 anchor 名是
-   `com.homelab.manager.ipv6`，两者不冲突，但 M2 实施前需确认该文件的来源，
+   `com.macpanel.ipv6`，两者不冲突，但 M2 实施前需确认该文件的来源，
    避免误判为「本应用残留」。
 4. **PKG 未实际安装**：需干净测试机与 root 权限，属 M5 范围。
 5. **前端无自动化测试**：本轮用脚本化浏览器检查（对比度、溢出、裁剪、交互），

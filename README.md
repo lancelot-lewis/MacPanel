@@ -1,6 +1,6 @@
-# HomeLab Manager
+# MacPanel
 
-macOS HomeLab 管理面板。单个 Go 二进制 + 内嵌 Vue 3 前端，原生运行、不依赖 Docker，
+MacPanel：macOS 服务器管理面板。单个 Go 二进制 + 内嵌 Vue 3 前端，原生运行、不依赖 Docker，
 用于统一管理系统状态、IPv6 防火墙、定时重启、启动项与网络诊断。
 
 > **当前版本：M0–M4 + M6 功能完成；M5 打包链路已打通并完成静态校验，干净系统安装待验证**
@@ -58,7 +58,7 @@ M2 的核心是「规则编辑器」——端口范围、CIDR、协议、多接�
 浏览器（默认仅 127.0.0.1）
     │ HTTP + 严格 Host/Origin 校验（远程模式需登录）
     ▼
-Go Server（非特权账户 _homelab）
+Go Server（非特权账户 _macpanel）
     │ REST API + 内嵌前端 + SQLite(WAL) + 审计
     ▼ Unix Socket（长度前缀帧 + 共享令牌 + 对端 UID 校验 + 防重放）
 Go Root Agent（root，launchd 系统服务）
@@ -106,8 +106,8 @@ make dev-server
 
 ```bash
 make dev-status                              # 人类可读
-./bin/homelab-manager status -dev --json     # 机器可读
-./bin/homelab-manager config -dev            # 打印生效配置
+./bin/macpanel status -dev --json     # 机器可读
+./bin/macpanel config -dev            # 打印生效配置
 ```
 
 `status` 在 Agent 不可达时不报错退出，而是逐项打印不可达原因。
@@ -118,12 +118,12 @@ make dev-status                              # 人类可读
 规则一旦把 SSH 挡在外面，面板那条链路本身就断了，而这两条命令还能用。
 
 ```bash
-sudo /usr/local/bin/homelab-manager firewall status     # 纯只读：PF 状态 + 事务 + 倒计时
-sudo /usr/local/bin/homelab-manager firewall rollback   # 回滚当前事务（幂等）
-sudo /usr/local/bin/homelab-manager firewall unload     # 无条件清空本应用 anchor
+sudo /usr/local/bin/macpanel firewall status     # 纯只读：PF 状态 + 事务 + 倒计时
+sudo /usr/local/bin/macpanel firewall rollback   # 回滚当前事务（幂等）
+sudo /usr/local/bin/macpanel firewall unload     # 无条件清空本应用 anchor
 
 # 非 root 自动进入 dry-run，可用于预演
-./bin/homelab-manager firewall status -dev
+./bin/macpanel firewall status -dev
 ```
 
 `rollback` 与 `unload` 的区别是刻意保留的两种语义：
@@ -156,13 +156,13 @@ launchd 运行身份等 30 项。它**不能替代**真机安装，但能把「�
 安装与卸载：
 
 ```bash
-sudo installer -pkg HomeLabManager-<version>.pkg -target /
-sudo homelab-manager-uninstall            # 交互式，数据与日志默认保留
-sudo homelab-manager-uninstall --purge    # 连数据与日志一起删除
+sudo installer -pkg MacPanel-<version>.pkg -target /
+sudo macpanel-uninstall            # 交互式，数据与日志默认保留
+sudo macpanel-uninstall --purge    # 连数据与日志一起删除
 ```
 
 `preinstall` 会把数据库、令牌与 PF 现状备份到
-`/Library/Application Support/HomeLabManager/backups/preupgrade-<时间戳>/`，
+`/Library/Application Support/MacPanel/backups/preupgrade-<时间戳>/`，
 只保留最近 5 份。
 
 ## 常用命令
@@ -187,14 +187,14 @@ Agent 以 root 运行时才会真正调用 pfctl。开发环境（`-dev` 或非 
 make dev-agent
 
 # 真实模式（需 root，会实际修改 PF）
-sudo ./bin/homelab-manager agent
+sudo ./bin/macpanel agent
 ```
 
 ## 目录结构
 
 ```text
 .
-├── cmd/homelab-manager/          统一入口（server / agent / status / token / config）
+├── cmd/macpanel/          统一入口（server / agent / status / token / config）
 ├── internal/
 │   ├── model/                    数据结构与错误码（不依赖其它内部包）
 │   ├── config/                   配置加载、校验、IPC 令牌
@@ -227,7 +227,7 @@ sudo ./bin/homelab-manager agent
 
 | 项 | 实现 |
 | --- | --- |
-| 默认监听 | `127.0.0.1:7788`；非回环地址需显式 `HLM_ALLOW_REMOTE=true` |
+| 默认监听 | `127.0.0.1:7788`；非回环地址需显式 `MACPANEL_ALLOW_REMOTE=true` |
 | IPC 身份 | `LOCAL_PEERCRED` 对端 uid 校验 + 32 字节共享令牌（常量时间比较） |
 | IPC 防重放 | ±60 秒时间窗 + 唯一请求 ID |
 | 命令执行 | 仅 5 个白名单绝对路径，不经 shell，3 秒超时，输出上限 1 MiB |

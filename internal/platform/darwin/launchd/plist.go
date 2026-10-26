@@ -22,13 +22,13 @@ import (
 //
 // 强制前缀是「只操作自己的服务」的基础：没有它，一个错误的 label
 // 就可能 bootout 掉系统关键服务。
-const LabelPrefix = "com.homelab.manager."
+const LabelPrefix = "com.macpanel."
 
 // DaemonDir 是系统级 LaunchDaemon 的固定目录。
 const DaemonDir = "/Library/LaunchDaemons"
 
 // LogDir 是 launchd 任务的标准输出目录。
-const LogDir = "/Library/Logs/HomeLabManager"
+const LogDir = "/Library/Logs/MacPanel"
 
 // CalendarInterval 对应 plist 里的 StartCalendarInterval 条目。
 //
@@ -79,8 +79,9 @@ func (s Spec) Validate() error {
 	}
 	// 必须是本应用二进制。这一条挡的是「改数据库就能让 root 执行任意程序」：
 	// 即使有人能写入 scheduled_tasks，也无法让 launchd 执行 /bin/sh。
-	if !strings.Contains(prog, "homelab-manager") {
-		return fmt.Errorf("launchd: 可执行文件必须是 homelab-manager，实际 %q", prog)
+	//
+	if !strings.Contains(prog, "macpanel") {
+		return fmt.Errorf("launchd: 可执行文件必须是 macpanel，实际 %q", prog)
 	}
 
 	if s.RunAtLoad {

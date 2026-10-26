@@ -6,7 +6,7 @@
 #   ./packaging/macos/pkg/build-pkg.sh
 #
 # 前置条件：
-#   - 已执行 `make build`，存在 bin/homelab-manager
+#   - 已执行 `make build`，存在 bin/macpanel
 #   - 安装 pkgbuild / productbuild（Xcode 或 Command Line Tools 自带）
 #
 # 重要：本脚本只生成安装包，不会安装、不会修改本机任何系统配置。
@@ -20,7 +20,7 @@ export COPY_EXTENDED_ATTRIBUTES_DISABLE=1
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build"
-IDENTIFIER="com.homelab.manager"
+IDENTIFIER="com.macpanel"
 
 # 版本号：优先用 git tag；没有 tag 时用固化的语义化版本，
 # 避免安装包版本号变成一串提交哈希。
@@ -30,7 +30,7 @@ else
 	VERSION="0.1.0"
 fi
 
-BINARY="${REPO_ROOT}/bin/homelab-manager"
+BINARY="${REPO_ROOT}/bin/macpanel"
 PAYLOAD_ROOT="${BUILD_DIR}/payload"
 SCRIPTS_DIR="${BUILD_DIR}/scripts"
 
@@ -58,22 +58,22 @@ mkdir -p "${SCRIPTS_DIR}"
 # 由安装脚本创建也能保证权限一定符合预期，而不依赖打包机器的 umask。
 
 echo "==> 复制二进制与 launchd 定义"
-install -m 0755 "${BINARY}" "${PAYLOAD_ROOT}/usr/local/bin/homelab-manager"
+install -m 0755 "${BINARY}" "${PAYLOAD_ROOT}/usr/local/bin/macpanel"
 
 # 卸载脚本随包安装：出事的人最需要它，而那时他大概率已经找不到下载回来的 DMG 了。
-install -m 0755 "${REPO_ROOT}/packaging/macos/uninstall.sh" "${PAYLOAD_ROOT}/usr/local/bin/homelab-manager-uninstall"
+install -m 0755 "${REPO_ROOT}/packaging/macos/uninstall.sh" "${PAYLOAD_ROOT}/usr/local/bin/macpanel-uninstall"
 
 for plist in "${REPO_ROOT}"/packaging/macos/launchd/*.plist; do
 	name="$(basename "${plist}")"
-	sed -e "s|__BINARY_PATH__|/usr/local/bin/homelab-manager|g" \
-		-e "s|__LOG_DIR__|/Library/Logs/HomeLabManager|g" \
+	sed -e "s|__BINARY_PATH__|/usr/local/bin/macpanel|g" \
+		-e "s|__LOG_DIR__|/Library/Logs/MacPanel|g" \
 		"${plist}" > "${PAYLOAD_ROOT}/Library/LaunchDaemons/${name}"
 	chmod 0644 "${PAYLOAD_ROOT}/Library/LaunchDaemons/${name}"
 done
 
 echo "==> 生成安装前脚本（升级前备份）"
 #
-# 为什么必须有 preinstall：升级会覆盖 /usr/local/bin/homelab-manager
+# 为什么必须有 preinstall：升级会覆盖 /usr/local/bin/macpanel
 # 并重启服务，此时若新版本的数据库迁移或配置校验失败，旧数据就是唯一的退路。
 # PLAN.md 第 10 节把「安装前备份」列为硬要求。
 #
@@ -84,11 +84,11 @@ cat > "${SCRIPTS_DIR}/preinstall" <<'PREINSTALL'
 #!/bin/bash
 set -uo pipefail
 
-BIN="/usr/local/bin/homelab-manager"
-DATA_DIR="/Library/Application Support/HomeLabManager"
+BIN="/usr/local/bin/macpanel"
+DATA_DIR="/Library/Application Support/MacPanel"
 TOKEN="${DATA_DIR}/ipc.token"
-ANCHOR="/etc/pf.anchors/com.homelab.manager.ipv6"
-ANCHOR_NAME="com.homelab.manager.ipv6"
+ANCHOR="/etc/pf.anchors/com.macpanel.ipv6"
+ANCHOR_NAME="com.macpanel.ipv6"
 # 保留的备份份数上限：够回溯几次升级，又不会让数据目录无限增长。
 KEEP=5
 
@@ -103,8 +103,8 @@ echo "检测到既有安装，开始升级前备份"
 # 1. 先停服务再备份。
 #    SQLite 处于 WAL 模式，直接复制运行中的文件可能拿到不一致的快照；
 #    停服 '.backup' 之前先让它 checkpoint 完毕是最省事的做法。
-launchctl bootout system /Library/LaunchDaemons/com.homelab.manager.server.plist 2>/dev/null || true
-launchctl bootout system /Library/LaunchDaemons/com.homelab.manager.agent.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.macpanel.server.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.macpanel.agent.plist 2>/dev/null || true
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="${DATA_DIR}/backups"
@@ -152,10 +152,10 @@ cat > "${SCRIPTS_DIR}/postinstall" <<'POSTINSTALL'
 #!/bin/bash
 set -euo pipefail
 
-BIN="/usr/local/bin/homelab-manager"
-DATA_DIR="/Library/Application Support/HomeLabManager"
-RUN_DIR="/var/run/homelab-manager"
-LOG_DIR="/Library/Logs/HomeLabManager"
+BIN="/usr/local/bin/macpanel"
+DATA_DIR="/Library/Application Support/MacPanel"
+RUN_DIR="/var/run/macpanel"
+LOG_DIR="/Library/Logs/MacPanel"
 TOKEN="${DATA_DIR}/ipc.token"
 
 # 1. 创建专用非特权账户（已存在则跳过）
@@ -167,51 +167,51 @@ HM_GID=350
 uid_in_use() { dscl . -list /Users UniqueID 2>/dev/null | awk '{print $2}' | grep -qx "$1"; }
 gid_in_use() { dscl . -list /Groups PrimaryGroupID 2>/dev/null | awk '{print $2}' | grep -qx "$1"; }
 
-if ! dscl . -read /Users/_homelab >/dev/null 2>&1; then
+if ! dscl . -read /Users/_macpanel >/dev/null 2>&1; then
 	while uid_in_use "${HM_UID}"; do
 		HM_UID=$((HM_UID - 1))
 	done
-	echo "创建服务账户 _homelab（UID ${HM_UID}）"
-	dscl . -create /Users/_homelab
-	dscl . -create /Users/_homelab RealName "HomeLab Manager"
-	dscl . -create /Users/_homelab UniqueID "${HM_UID}"
-	dscl . -create /Users/_homelab UserShell /usr/bin/false
-	dscl . -create /Users/_homelab NFSHomeDirectory /var/empty
-	dscl . -create /Users/_homelab IsHidden 1
+	echo "创建服务账户 _macpanel（UID ${HM_UID}）"
+	dscl . -create /Users/_macpanel
+	dscl . -create /Users/_macpanel RealName "MacPanel"
+	dscl . -create /Users/_macpanel UniqueID "${HM_UID}"
+	dscl . -create /Users/_macpanel UserShell /usr/bin/false
+	dscl . -create /Users/_macpanel NFSHomeDirectory /var/empty
+	dscl . -create /Users/_macpanel IsHidden 1
 fi
 
-# 组单独判定：只建用户、不建组会让 UserName=_homelab 的 launchd 任务起不来。
-if ! dscl . -read /Groups/_homelab >/dev/null 2>&1; then
+# 组单独判定：只建用户、不建组会让 UserName=_macpanel 的 launchd 任务起不来。
+if ! dscl . -read /Groups/_macpanel >/dev/null 2>&1; then
 	while gid_in_use "${HM_GID}"; do
 		HM_GID=$((HM_GID - 1))
 	done
-	echo "创建服务组 _homelab（GID ${HM_GID}）"
-	dscl . -create /Groups/_homelab
-	dscl . -create /Groups/_homelab PrimaryGroupID "${HM_GID}"
-	dscl . -create /Groups/_homelab RealName "HomeLab Manager"
+	echo "创建服务组 _macpanel（GID ${HM_GID}）"
+	dscl . -create /Groups/_macpanel
+	dscl . -create /Groups/_macpanel PrimaryGroupID "${HM_GID}"
+	dscl . -create /Groups/_macpanel RealName "MacPanel"
 fi
 
 # 无论账户是这次新建的还是已存在的，都确保两者 ID 对齐。
-dscl . -create /Users/_homelab PrimaryGroupID "$(dscl . -read /Groups/_homelab PrimaryGroupID | awk '{print $2}')"
+dscl . -create /Users/_macpanel PrimaryGroupID "$(dscl . -read /Groups/_macpanel PrimaryGroupID | awk '{print $2}')"
 
 # 2. 目录与权限
-#    Agent 以 root 运行；Server 以 _homelab 运行，只能读取令牌、不能写入。
+#    Agent 以 root 运行；Server 以 _macpanel 运行，只能读取令牌、不能写入。
 mkdir -p "${DATA_DIR}/data" "${RUN_DIR}" "${LOG_DIR}"
 chown -R root:wheel "${DATA_DIR}"
 chmod 0750 "${DATA_DIR}"
-chown -R _homelab:_homelab "${DATA_DIR}/data"
+chown -R _macpanel:_macpanel "${DATA_DIR}/data"
 chmod 0700 "${DATA_DIR}/data"
-chown root:_homelab "${RUN_DIR}"
+chown root:_macpanel "${RUN_DIR}"
 chmod 0750 "${RUN_DIR}"
-chown -R _homelab:_homelab "${LOG_DIR}"
+chown -R _macpanel:_macpanel "${LOG_DIR}"
 chmod 0750 "${LOG_DIR}"
 
 # 3. 生成 IPC 共享令牌（仅在不存在时）
-#    令牌文件 root:_homelab 0640：Server 可读，其他账户不可读，root 可写。
+#    令牌文件 root:_macpanel 0640：Server 可读，其他账户不可读，root 可写。
 if [[ ! -f "${TOKEN}" ]]; then
 	echo "生成 IPC 令牌"
 	"${BIN}" token -force >/dev/null
-	chown root:_homelab "${TOKEN}"
+	chown root:_macpanel "${TOKEN}"
 	chmod 0640 "${TOKEN}"
 else
 	echo "IPC 令牌已存在，保留原值"
@@ -219,10 +219,10 @@ fi
 
 # 4. 加载 launchd 服务（先卸旧再装新，避免残留旧定义）
 echo "加载 launchd 服务"
-launchctl bootout system /Library/LaunchDaemons/com.homelab.manager.agent.plist 2>/dev/null || true
-launchctl bootout system /Library/LaunchDaemons/com.homelab.manager.server.plist 2>/dev/null || true
-launchctl bootstrap system /Library/LaunchDaemons/com.homelab.manager.agent.plist
-launchctl bootstrap system /Library/LaunchDaemons/com.homelab.manager.server.plist
+launchctl bootout system /Library/LaunchDaemons/com.macpanel.agent.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.macpanel.server.plist 2>/dev/null || true
+launchctl bootstrap system /Library/LaunchDaemons/com.macpanel.agent.plist
+launchctl bootstrap system /Library/LaunchDaemons/com.macpanel.server.plist
 
 echo "安装完成。管理面板: http://127.0.0.1:7788"
 echo ""
@@ -233,7 +233,7 @@ echo "  · 若规则导致 SSH 失联，在本机终端执行："
 echo "      sudo ${BIN} firewall status"
 echo "      sudo ${BIN} firewall rollback"
 echo ""
-echo "卸载：sudo /usr/local/bin/homelab-manager-uninstall"
+echo "卸载：sudo /usr/local/bin/macpanel-uninstall"
 exit 0
 POSTINSTALL
 chmod 0755 "${SCRIPTS_DIR}/postinstall"
@@ -262,7 +262,7 @@ pkgbuild \
 	"${COMPONENT_PKG}"
 
 echo "==> 构建分发包"
-OUTPUT_PKG="${REPO_ROOT}/HomeLabManager-${VERSION}.pkg"
+OUTPUT_PKG="${REPO_ROOT}/MacPanel-${VERSION}.pkg"
 productbuild \
 	--package "${COMPONENT_PKG}" \
 	--identifier "${IDENTIFIER}" \
@@ -276,10 +276,10 @@ echo ""
 echo "下一步（需人工执行并验证）："
 echo "  1. 静态校验（不需要 root）:  make verify-pkg"
 echo "  2. 在测试机上安装:          sudo installer -pkg '${OUTPUT_PKG}' -target /"
-echo "  3. 验证服务:                sudo launchctl print system/com.homelab.manager.agent | head -20"
+echo "  3. 验证服务:                sudo launchctl print system/com.macpanel.agent | head -20"
 echo "  4. 验证面板:                curl -s http://127.0.0.1:7788/api/v1/healthz"
-echo "  5. 验证防火墙救援通道:      sudo /usr/local/bin/homelab-manager firewall status"
-echo "  6. 卸载测试:                sudo homelab-manager-uninstall"
+echo "  5. 验证防火墙救援通道:      sudo /usr/local/bin/macpanel firewall status"
+echo "  6. 卸载测试:                sudo macpanel-uninstall"
 echo "  7. 完整验收清单:            docs/m5-acceptance.md"
 echo ""
 echo "警告：本包未签名。分发前需 Developer ID 签名与公证，否则 Gatekeeper 会拦截。"

@@ -258,12 +258,12 @@ func TestPFConfCommentIgnored(t *testing.T) {
 
 // TestParseAnchorList 验证 anchor 列表解析。
 func TestParseAnchorList(t *testing.T) {
-	out := "com.apple/250.ApplicationFirewall\ncom.homelab.manager.ipv6\n\n  com.other  \n"
+	out := "com.apple/250.ApplicationFirewall\ncom.macpanel.ipv6\n\n  com.other  \n"
 	list := parseAnchorList(out)
 	if len(list) != 3 {
 		t.Fatalf("应解析出 3 项，实际 %d: %v", len(list), list)
 	}
-	if list[1] != "com.homelab.manager.ipv6" {
+	if list[1] != "com.macpanel.ipv6" {
 		t.Errorf("第二项不符: %s", list[1])
 	}
 	if list[2] != "com.other" {

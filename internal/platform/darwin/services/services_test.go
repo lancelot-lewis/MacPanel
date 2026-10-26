@@ -137,8 +137,8 @@ func TestClassify(t *testing.T) {
 		"com.apple.Finder":            KindSystemCritical,
 		"com.apple.launchd":           KindSystemCritical,
 		"com.openssh.sshd":            KindSystemCritical, // Apple 提供的 sshd
-		"com.homelab.manager.agent":   KindSelf,
-		"com.homelab.manager.server":  KindSelf,
+		"com.macpanel.agent":          KindSelf,
+		"com.macpanel.server":         KindSelf,
 		"ddns-go":                     KindThirdParty,
 		"com.netease.uuremote.daemon": KindThirdParty,
 		"io.tailscale.ipn.macsys":     KindThirdParty,
@@ -159,8 +159,8 @@ func TestValidateLabelForControlRejectsCritical(t *testing.T) {
 	cases := []string{
 		"com.apple.Finder",
 		"com.openssh.sshd",
-		"com.homelab.manager.agent",
-		"com.homelab.manager.server",
+		"com.macpanel.agent",
+		"com.macpanel.server",
 	}
 	for _, label := range cases {
 		if err := ValidateLabelForControl(label); err == nil {
@@ -185,7 +185,7 @@ func TestValidateLabelForControlRejectsCritical(t *testing.T) {
 func TestEnrichAssignsControllability(t *testing.T) {
 	list := []Service{
 		{Label: "com.apple.Finder", Kind: KindSystemCritical},
-		{Label: "com.homelab.manager.agent", Kind: KindSelf},
+		{Label: "com.macpanel.agent", Kind: KindSelf},
 		{Label: "ddns-go", Kind: KindThirdParty},
 		{Label: "com.example.managed", Kind: KindThirdParty},
 	}
@@ -512,8 +512,8 @@ func TestControllerRejectsCriticalServices(t *testing.T) {
 	}{
 		{"com.apple.Finder", ActionStop},
 		{"com.openssh.sshd", ActionStop},
-		{"com.homelab.manager.agent", ActionStop},
-		{"com.homelab.manager.server", ActionRestart},
+		{"com.macpanel.agent", ActionStop},
+		{"com.macpanel.server", ActionRestart},
 	}
 	for _, tc := range cases {
 		err := c.Execute(context.Background(), tc.label, tc.action, "")

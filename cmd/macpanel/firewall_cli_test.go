@@ -19,7 +19,7 @@ func TestFirewallStatePathFollowsSocketDir(t *testing.T) {
 		socket string
 		want   string
 	}{
-		{"/var/run/homelab-manager/agent.sock", "/var/run/homelab-manager/firewall-state.json"},
+		{"/var/run/macpanel/agent.sock", "/var/run/macpanel/firewall-state.json"},
 		{"/tmp/x/agent.sock", "/tmp/x/firewall-state.json"},
 	}
 	for _, c := range cases {
@@ -84,10 +84,10 @@ func TestRenderLogArgs(t *testing.T) {
 
 // TestLoadedMark 确认 anchor 列表里能否识别出本应用 anchor。
 func TestLoadedMark(t *testing.T) {
-	if got := loadedMark([]string{"com.other", "com.homelab.manager.ipv6"}, "com.homelab.manager.ipv6"); !strings.Contains(got, "含本应用") {
+	if got := loadedMark([]string{"com.other", "com.macpanel.ipv6"}, "com.macpanel.ipv6"); !strings.Contains(got, "含本应用") {
 		t.Errorf("包含时应标记，实际 %q", got)
 	}
-	if got := loadedMark([]string{"com.other"}, "com.homelab.manager.ipv6"); !strings.Contains(got, "不含") {
+	if got := loadedMark([]string{"com.other"}, "com.macpanel.ipv6"); !strings.Contains(got, "不含") {
 		t.Errorf("不包含时应说明，实际 %q", got)
 	}
 }

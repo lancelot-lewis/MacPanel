@@ -50,7 +50,7 @@ async function submit() {
         >
           HL
         </div>
-        <h1 class="m-0 text-lg font-semibold">HomeLab 管理面板</h1>
+        <h1 class="m-0 text-lg font-semibold">MacPanel 管理面板</h1>
         <p class="mt-1 mb-0 text-[12px]" :style="{ color: 'var(--color-text-secondary)' }">
           远程访问需要登录
         </p>

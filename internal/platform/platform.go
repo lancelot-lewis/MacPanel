@@ -31,7 +31,7 @@ type Collector interface {
 
 // PowerController 是受控电源操作接口。
 //
-// 只有「重启」，没有关机与断电：本应用面向无人值守的 HomeLab，
+// 只有「重启」，没有关机与断电：本应用面向无人值守的家庭实验室，
 // 关机后若机器不在物理可及范围，用户就彻底失联了。
 // 因此 shutdownGuard 在命令层也把 -h/-p 封死。
 type PowerController interface {

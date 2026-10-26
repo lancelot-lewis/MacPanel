@@ -272,7 +272,7 @@ func (m *Manager) Apply(ctx context.Context, content string, revisionID int64, p
 		if rbErr := m.rollbackLocked(ctx, "应用失败后自动回滚"); rbErr != nil {
 			m.log.Error("应用失败且回滚也失败", "applyErr", err, "rollbackErr", rbErr)
 			return ApplyResult{}, model.NewError(model.CodeInternal,
-				"应用规则失败（%v），且自动回滚也失败（%v）。请通过 CLI 救援：homelab-manager firewall rollback", err, rbErr)
+				"应用规则失败（%v），且自动回滚也失败（%v）。请通过 CLI 救援：macpanel firewall rollback", err, rbErr)
 		}
 		return ApplyResult{}, model.NewError(model.CodeInternal,
 			"应用规则失败，已自动回滚到之前状态：%v", err)

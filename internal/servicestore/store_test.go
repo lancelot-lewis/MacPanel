@@ -145,8 +145,8 @@ func TestUpsertRejectsInvalid(t *testing.T) {
 			m.PlistPath = "/System/Library/LaunchDaemons/com.apple.Finder.plist"
 		}},
 		{"本应用自身", func(m *model.ManagedService) {
-			m.Label = "com.homelab.manager.agent"
-			m.PlistPath = "/Library/LaunchDaemons/com.homelab.manager.agent.plist"
+			m.Label = "com.macpanel.agent"
+			m.PlistPath = "/Library/LaunchDaemons/com.macpanel.agent.plist"
 		}},
 		{"非 system 域", func(m *model.ManagedService) { m.Domain = "gui" }},
 		{"路径不在允许目录", func(m *model.ManagedService) {

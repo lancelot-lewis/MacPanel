@@ -89,14 +89,14 @@ func TestLaunchctlGuardAllowsReadOnlyDomainQuery(t *testing.T) {
 func TestLaunchctlGuardAllowsExpectedCalls(t *testing.T) {
 	cases := [][]string{
 		{"list"},
-		{"list", "com.homelab.manager.agent"},
-		{"print", "system/com.homelab.manager.agent"},
+		{"list", "com.macpanel.agent"},
+		{"print", "system/com.macpanel.agent"},
 		{"print", "system"},
-		{"bootstrap", "system", "/Library/LaunchDaemons/com.homelab.manager.task.1.plist"},
-		{"bootout", "system/com.homelab.manager.task.1"},
-		{"kickstart", "system/com.homelab.manager.server"},
-		{"enable", "system/com.homelab.manager.task.1"},
-		{"disable", "system/com.homelab.manager.task.1"},
+		{"bootstrap", "system", "/Library/LaunchDaemons/com.macpanel.task.1.plist"},
+		{"bootout", "system/com.macpanel.task.1"},
+		{"kickstart", "system/com.macpanel.server"},
+		{"enable", "system/com.macpanel.task.1"},
+		{"disable", "system/com.macpanel.task.1"},
 	}
 
 	for _, args := range cases {

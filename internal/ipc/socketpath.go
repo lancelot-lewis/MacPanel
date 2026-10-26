@@ -17,7 +17,7 @@ func validateSocketPath(path string) error {
 		return fmt.Errorf(
 			"ipc: Socket 路径过长（%d 字节，上限 %d）：%s；"+
 				"请改用更短的目录（例如 %s）",
-			len(path), maxSocketPathLen-1, path, "/var/run/homelab-manager/agent.sock")
+			len(path), maxSocketPathLen-1, path, "/var/run/macpanel/agent.sock")
 	}
 	return nil
 }

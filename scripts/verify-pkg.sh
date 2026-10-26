@@ -3,7 +3,7 @@
 # PKG 静态校验 —— 不需要 root，不会安装任何东西。
 #
 # 用法:
-#   scripts/verify-pkg.sh                 # 校验仓库根目录下最新的 HomeLabManager-*.pkg
+#   scripts/verify-pkg.sh                 # 校验仓库根目录下最新的 MacPanel-*.pkg
 #   scripts/verify-pkg.sh <path.pkg>      # 校验指定包
 #
 # 为什么需要它：真正的安装会创建账户、写 launchd、占用 7788 端口，
@@ -58,9 +58,9 @@ if [[ $# -ge 1 ]]; then
 else
 	# 注意：macOS 自带的 bash 是 3.2，不支持 negative subscript（arr[-1]），
 	# 因此这里用 tail 取最后一个，而不是 `${ALL[-1]}`。
-	ALL="$(cd "${REPO_ROOT}" && ls HomeLabManager-*.pkg 2>/dev/null | sort -V)"
+	ALL="$(cd "${REPO_ROOT}" && ls MacPanel-*.pkg 2>/dev/null | sort -V)"
 	if [[ -z "${ALL}" ]]; then
-		echo "错误: 未找到 HomeLabManager-*.pkg，请先运行 make pkg" >&2
+		echo "错误: 未找到 MacPanel-*.pkg，请先运行 make pkg" >&2
 		exit 2
 	fi
 	PKG="${REPO_ROOT}/$(printf '%s\n' "${ALL}" | tail -1)"
@@ -188,7 +188,7 @@ if [[ -d "${COMP}/Scripts" ]]; then
 		check "preinstall 会做升级前备份" $?
 	fi
 	if [[ -f "${COMP}/Scripts/postinstall" ]]; then
-		grep -q "homelab-manager-uninstall" "${COMP}/Scripts/postinstall"
+		grep -q "macpanel-uninstall" "${COMP}/Scripts/postinstall"
 		check "postinstall 提到了随包安装的卸载命令" $?
 		grep -q "firewall rollback" "${COMP}/Scripts/postinstall"
 		check "postinstall 输出了防火墙救援命令" $?
@@ -225,10 +225,10 @@ if [[ -f "${COMP}/Bom" ]]; then
 			ok "${path}（${mode}）"
 		}
 
-		bom_has "./usr/local/bin/homelab-manager" "100755"
-		bom_has "./usr/local/bin/homelab-manager-uninstall" "100755"
-		bom_has "./Library/LaunchDaemons/com.homelab.manager.agent.plist" "100644"
-		bom_has "./Library/LaunchDaemons/com.homelab.manager.server.plist" "100644"
+		bom_has "./usr/local/bin/macpanel" "100755"
+		bom_has "./usr/local/bin/macpanel-uninstall" "100755"
+		bom_has "./Library/LaunchDaemons/com.macpanel.agent.plist" "100644"
+		bom_has "./Library/LaunchDaemons/com.macpanel.server.plist" "100644"
 
 		# 不许包进东西：数据目录一旦进了 payload，
 		# 升级时会覆盖用户现有的数据库。
@@ -260,30 +260,30 @@ if [[ -f "${COMP}/Payload" ]]; then
 	mkdir -p "${PAYLOAD_EXTRACT}"
 	(cd "${PAYLOAD_EXTRACT}" && cat "${COMP}/Payload" | gunzip -c | cpio -i --quiet 2>/dev/null)
 
-	AGENT="${PAYLOAD_EXTRACT}/Library/LaunchDaemons/com.homelab.manager.agent.plist"
-	SERVER="${PAYLOAD_EXTRACT}/Library/LaunchDaemons/com.homelab.manager.server.plist"
+	AGENT="${PAYLOAD_EXTRACT}/Library/LaunchDaemons/com.macpanel.agent.plist"
+	SERVER="${PAYLOAD_EXTRACT}/Library/LaunchDaemons/com.macpanel.server.plist"
 
 	if [[ -f "${AGENT}" ]]; then
 		grep -A1 "<key>UserName</key>" "${AGENT}" | grep -q "<string>root</string>"
 		check "agent 以 root 运行" $?
-		grep -q "/usr/local/bin/homelab-manager" "${AGENT}"
+		grep -q "/usr/local/bin/macpanel" "${AGENT}"
 		check "agent 的二进制路径已替换" $?
 	else
 		fail "Payload 里找不到 agent plist"
 	fi
 
 	if [[ -f "${SERVER}" ]]; then
-		grep -A1 "<key>UserName</key>" "${SERVER}" | grep -q "<string>_homelab</string>"
-		check "server 以非特权账户 _homelab 运行" $?
+		grep -A1 "<key>UserName</key>" "${SERVER}" | grep -q "<string>_macpanel</string>"
+		check "server 以非特权账户 _macpanel 运行" $?
 	else
 		fail "Payload 里找不到 server plist"
 	fi
 
-	# PF anchor 名必须带 manager 前缀：本机已有一个无关的 com.homelab.ipv6，
-	# 混用会写到别人的 anchor 里。
+	# PF anchor 名必须带本应用前缀：本机另有一个无关的 com.homelab.ipv6
+	# （第三方留下的），名字相近但前缀不同，两者不能互相影响。
 	if [[ -f "${AGENT}" ]]; then
-		grep -q "com.homelab.manager.ipv6" "${AGENT}"
-		check "anchor 名带 manager 前缀（不与他人冲突）" $?
+		grep -q "com.macpanel.ipv6" "${AGENT}"
+		check "anchor 名带本应用前缀（不与他人冲突）" $?
 	fi
 else
 	fail "组件包没有 Payload"
@@ -316,6 +316,6 @@ fi
 
 echo "包结构正确。下一步（需 root，请在测试机执行）："
 echo "  sudo installer -pkg '${PKG}' -target /"
-echo "  sudo launchctl print system/com.homelab.manager.agent | head -20"
+echo "  sudo launchctl print system/com.macpanel.agent | head -20"
 echo "  curl -s http://127.0.0.1:7788/api/v1/healthz"
 exit 0

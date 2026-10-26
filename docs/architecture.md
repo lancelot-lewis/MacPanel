@@ -10,7 +10,7 @@
     │ HTTP + 会话鉴权（远程模式必须 HTTPS）
     ▼
 ┌─────────────────────────────────────────────┐
-│ Go Server（非特权账户 _homelab）              │
+│ Go Server（非特权账户 _macpanel）              │
 │  ├── 内嵌前端资源（embed）                    │
 │  ├── REST API /api/v1/*                      │
 │  ├── 认证与会话（scrypt + cookie）            │
@@ -31,12 +31,12 @@
         macOS：/dev/pf、sysctl、网络栈
 ```
 
-单一一进制 `homelab-manager` 通过子命令切换角色：
+单一一进制 `macpanel` 通过子命令切换角色：
 
 | 子命令 | 身份 | 职责 |
 | --- | --- | --- |
 | `agent` | root | 特权只读采集（M1）、未来的 PF/launchd/重启写操作 |
-| `server` | _homelab | HTTP 服务、认证、SQLite、审计、托管前端 |
+| `server` | _macpanel | HTTP 服务、认证、SQLite、审计、托管前端 |
 | `status` | 任意授权用户 | CLI 查询 Agent 状态（无需浏览器，用于救援） |
 | `token` | root | 生成 IPC 共享令牌 |
 | `config` | 任意 | 打印生效配置，便于排查配置问题 |
@@ -53,7 +53,7 @@ Wails 3 连接既有本地 API，且桌面进程不得接管 Agent 生命周期�
 ## 3. 依赖方向
 
 ```text
-cmd/homelab-manager
+cmd/macpanel
     ├── internal/server ──► internal/app ──► internal/ipc ──► internal/model
     │        ├── internal/auth    ──► internal/database
     │        └── internal/audit   ──► internal/database
@@ -119,7 +119,7 @@ web/src
 | 响应帧上限 | 4 MiB | 列表类数据留余量 |
 | 最大并发连接 | 16 | 防本地 DoS |
 | 单连接最多请求 | 8 | 限制长连接占用 |
-| 超时 | 默认 5 秒 | 可由 `HLM_IPC_TIMEOUT` 调整，上限 1 分钟 |
+| 超时 | 默认 5 秒 | 可由 `MACPANEL_IPC_TIMEOUT` 调整，上限 1 分钟 |
 
 ### 请求结构
 
@@ -280,7 +280,7 @@ idle ──────────► pending ───────────
 
 ### CLI 救援为什么绕过 IPC
 
-`homelab-manager firewall {status,rollback,unload}` 直接 read/write root 独占的
+`macpanel firewall {status,rollback,unload}` 直接 read/write root 独占的
 事务状态文件并直接调用 `firewalld.Manager`，**不经过 Server 与 Unix Socket**。
 
 ```text
@@ -323,7 +323,7 @@ cmd/.../task-run       launchd 触发的执行入口（独立子进程）
 
 ### 为什么 task-run 是独立子进程
 
-launchd 按 `StartCalendarInterval` 启动 `homelab-manager task-run --task <id>`。
+launchd 按 `StartCalendarInterval` 启动 `macpanel task-run --task <id>`。
 不让常驻 Agent 自己计时，原因有三：
 
 1. **Agent 停掉时任务仍能执行**——这是 PLAN 5.3 的硬要求；
@@ -393,7 +393,7 @@ TCP 探测不返回「成功/失败」，而是四类结论：
 ### 探测目标默认限本机
 
 诊断目标是「我配的服务起来了吗」，不是网络扫描。开放任意目标会让
-面板变成探测工具，需要 `HLM_ALLOW_NONLOCAL_PROBE=1` 显式开启。
+面板变成探测工具，需要 `MACPANEL_ALLOW_NONLOCAL_PROBE=1` 显式开启。
 
 ### 容器能力为什么只读
 

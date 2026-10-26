@@ -24,7 +24,7 @@ type diagWiring struct {
 // AllowNonLocalProbe 默认关闭：开放任意目标会让面板变成端口扫描器，
 // 而本应用真正需要的是「我配的服务起来了吗」——那总是本机地址。
 func wireDiag(log *slog.Logger) diagWiring {
-	allowNonLocal := envOr("HLM_ALLOW_NONLOCAL_PROBE", "") == "1"
+	allowNonLocal := envOr("MACPANEL_ALLOW_NONLOCAL_PROBE", "") == "1"
 	if allowNonLocal {
 		log.Warn("已允许 TCP 探测外部地址：面板可作为网络探测工具使用，请确认这是预期行为")
 	}

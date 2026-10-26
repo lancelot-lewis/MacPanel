@@ -1,14 +1,14 @@
-# HomeLab Manager — macOS HomeLab 管理面板开发计划
+# MacPanel — macOS 服务器管理面板开发计划
 
 > 版本：v1.1（Go + Vue 3 Web-first 实施蓝图；2026-10-26 更新）  
 > 目标平台：macOS（优先 Apple Silicon Mac mini，当前测试环境 macOS 27）  
 > 产品形态：**第一阶段仅 Go + Vue 3 Web UI**；原生运行，不依赖 Docker；独立 DMG 分发（内含 PKG 安装器）  
-> 使用范围：个人 HomeLab；默认仅本机访问，远程访问可选开启  
+> 使用范围：个人家庭实验室（HomeLab）场景；默认仅本机访问，远程访问可选开启  
 > 实施方式：按里程碑迭代，每阶段须通过验收再继续
 
 ## 1. 产品目标与边界
 
-开发一款轻量级 macOS HomeLab 管理面板，用于统一管理系统状态、IPv6 防火墙、定时重启、启动项与服务、网络诊断，后续支持 OrbStack 容器管理。
+开发一款轻量级 macOS 服务器管理面板（MacPanel），用于统一管理系统状态、IPv6 防火墙、定时重启、启动项与服务、网络诊断，后续支持 OrbStack 容器管理。
 
 ### 核心原则
 
@@ -32,7 +32,7 @@
 
 ### 决策依据
 
-1. 本项目本质是 **macOS HomeLab 后台管理服务**，不是以桌面窗口为核心的消费级应用。PF 防火墙、计划重启、launchd 服务必须在用户注销、窗口关闭、Web 页面关闭后持续工作。
+1. 本项目本质是 **macOS 后台管理服务**，不是以桌面窗口为核心的消费级应用。PF 防火墙、计划重启、launchd 服务必须在用户注销、窗口关闭、Web 页面关闭后持续工作。
 2. Mac mini 主要承担服务器职责；浏览器可以在 macOS、Windows、手机上访问，适合低频系统管理。
 3. Go 适合实现 HTTP API、系统信息采集、调度和特权 Agent；Vue 3 提供统一响应式管理界面。
 4. Wails 3 与 Tauri 2 都只能解决桌面客户端外壳，不能代替独立的 Root LaunchDaemon。当前引入会增加构建、签名、安装与维护成本。
@@ -91,11 +91,11 @@ macOS PF / launchctl / 系统 API
 同一 Go 二进制可支持不同子命令：
 
 ```bash
-homelab-manager server
-homelab-manager agent
-homelab-manager status
-homelab-manager firewall status
-homelab-manager firewall rollback
+macpanel server
+macpanel agent
+macpanel status
+macpanel firewall status
+macpanel firewall rollback
 ```
 
 由 launchd 将 `server` 作为非特权用户运行、`agent` 作为 Root 运行。CLI 救援需要本地授权与明确的操作边界。**无桌面主进程，不依赖用户登录或 WebView。**
@@ -111,8 +111,8 @@ homelab-manager firewall rollback
 ## 5. 项目目录
 
 ```text
-homelab-manager/
-├── cmd/homelab-manager/main.go
+macpanel/
+├── cmd/macpanel/main.go
 ├── internal/
 │   ├── app/
 │   ├── api/{handlers,middleware}/
@@ -266,8 +266,8 @@ SQLite 表（可根据实际需求演进）：
 目标发布物：
 
 ```text
-HomeLabManager-x.y.z.dmg
-└── HomeLabManager.pkg
+MacPanel-x.y.z.dmg
+└── MacPanel.pkg
 ```
 
 PKG 安装二进制、创建受限账户与目录、部署 launchd 服务、初始化数据库和配置。Root 权限通过明确的安装授权获取。

@@ -28,7 +28,7 @@ import (
 //   - 退出码直接反映结果，launchd 的日志更可读。
 //
 // 本命令由 launchd 以 root 启动，因此能真正执行重启。
-// 它的输出会被重定向到 /Library/Logs/HomeLabManager/task-<id>.log。
+// 它的输出会被重定向到 /Library/Logs/MacPanel/task-<id>.log。
 func runTaskRun(args []string) error {
 	fs := flag.NewFlagSet("task-run", flag.ContinueOnError)
 	taskID := fs.Int64("task", 0, "要执行的任务 ID")
@@ -46,7 +46,7 @@ func runTaskRun(args []string) error {
 	}
 
 	log, cleanup, err := logger.New(logger.Options{
-		Level:     envOr("HLM_LOG_LEVEL", "info"),
+		Level:     envOr("MACPANEL_LOG_LEVEL", "info"),
 		Dir:       cfg.LogDir,
 		Component: fmt.Sprintf("task-%d", *taskID),
 	})
@@ -116,7 +116,7 @@ func runTaskRun(args []string) error {
 func selfPath() string {
 	exe, err := os.Executable()
 	if err != nil {
-		return "homelab-manager"
+		return "macpanel"
 	}
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		return resolved

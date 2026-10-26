@@ -48,7 +48,7 @@ const (
 )
 
 // SelfPrefix 是本应用 launchd 标签的前缀。
-const SelfPrefix = "com.homelab.manager."
+const SelfPrefix = "com.macpanel."
 
 // applePrefixes 是系统关键服务的标签前缀。
 //

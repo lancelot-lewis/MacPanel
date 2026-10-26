@@ -188,7 +188,7 @@ go vet ./...               无告警
 - **根因**：`Server.Options.PublicHosts` 存在但**从未从配置注入**，
   导致 OriginGuard 只认后端自己的监听地址。
 - **影响**：任何反向代理部署（生产环境常见）都会无法保存/应用规则。
-- **修复**：新增 `HLM_PUBLIC_HOSTS` 配置项并注入；开发代理也用同一机制。
+- **修复**：新增 `MACPANEL_PUBLIC_HOSTS` 配置项并注入；开发代理也用同一机制。
 - **回归测试**：`TestPublicHostsParsing`。
 
 ### 缺陷 5：`dirty` 状态竞态导致保存按钮时好时坏

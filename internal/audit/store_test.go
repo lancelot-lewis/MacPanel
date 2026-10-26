@@ -30,7 +30,7 @@ func TestWriteAndList(t *testing.T) {
 	entry := Entry{
 		Actor:      "local:127.0.0.1",
 		Action:     "firewall.apply",
-		Target:     "com.homelab.manager.ipv6",
+		Target:     "com.macpanel.ipv6",
 		Result:     ResultSuccess,
 		RemoteAddr: "127.0.0.1",
 		RequestID:  "req-1",

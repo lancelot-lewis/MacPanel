@@ -344,8 +344,8 @@ IPv6 防火墙只读状态。前端每 10 秒刷新。
       "readError": "pfctl: /dev/pf: Permission denied"
     },
     "anchor": {
-      "name": "com.homelab.manager.ipv6",
-      "rulePath": "/etc/pf.anchors/com.homelab.manager.ipv6",
+      "name": "com.macpanel.ipv6",
+      "rulePath": "/etc/pf.anchors/com.macpanel.ipv6",
       "state": "absent",
       "present": false,
       "referenced": false,
@@ -401,7 +401,7 @@ IPv6 防火墙只读状态。前端每 10 秒刷新。
         "at": "2026-10-26T00:57:34Z",
         "actor": "local:127.0.0.1",
         "action": "firewall.status",
-        "target": "com.homelab.manager.ipv6",
+        "target": "com.macpanel.ipv6",
         "result": "success",
         "remoteAddr": "127.0.0.1",
         "requestId": "8790dfbe9e214732"
@@ -480,7 +480,7 @@ IPv6 防火墙只读状态。前端每 10 秒刷新。
 
 ```json
 {
-  "content": "# 由 HomeLab Manager 自动生成…
+  "content": "# 由 MacPanel 自动生成…
 pass quick on lo0 all
 …",
   "ruleCount": 2,
@@ -702,7 +702,7 @@ pass quick on lo0 all
 
 校验（不通过返回 400）：
 
-- `label` 不得是 `com.apple.*` 或 `com.homelab.manager.*`
+- `label` 不得是 `com.apple.*` 或 `com.macpanel.*`
 - `domain` 只接受 `system`
 - `plistPath` 必须位于 `/Library/LaunchDaemons/` 或 `/System/Library/LaunchDaemons/`，
   不得含 `..`，必须是 `.plist`，且文件名必须等于 `<label>.plist`
@@ -788,7 +788,7 @@ pass quick on lo0 all
 | `unreachable` | 无路由 | 地址拼写、接口状态、路由表 |
 
 目标默认限本机（含本机已配置的接口地址）。探测外部地址需
-`HLM_ALLOW_NONLOCAL_PROBE=1`。
+`MACPANEL_ALLOW_NONLOCAL_PROBE=1`。
 
 ### GET /api/v1/orbstack/containers
 

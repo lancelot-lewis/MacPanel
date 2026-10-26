@@ -201,7 +201,7 @@ function cycleTheme() {
             HL
           </div>
           <div v-if="!collapsed" class="min-w-0 leading-tight">
-            <div class="truncate text-[13px] font-semibold">HomeLab 管理</div>
+            <div class="truncate text-[13px] font-semibold">MacPanel 管理</div>
             <div
               class="truncate text-[10.5px]"
               :style="{ color: 'var(--color-text-secondary)' }"

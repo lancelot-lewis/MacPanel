@@ -64,7 +64,7 @@ func NewPFExecutor(anchorName, rulePath string, dryRun bool) (*PFExecutor, error
 }
 
 // validateAnchorName 校验 anchor 名。
-// 只允许点分标识符（com.homelab.manager.ipv6），拒绝任何 shell/路径元字符。
+// 只允许点分标识符（com.macpanel.ipv6），拒绝任何 shell/路径元字符。
 func validateAnchorName(name string) error {
 	if len(name) > 100 {
 		return fmt.Errorf("firewalld: anchor 名过长（最多 100 字符）")
@@ -112,7 +112,7 @@ func (e *PFExecutor) CheckSyntax(ctx context.Context, path string) error {
 
 // Load 把规则文件加载到指定 anchor。
 //
-// 命令形如：pfctl -a com.homelab.manager.ipv6 -f /etc/pf.anchors/...
+// 命令形如：pfctl -a com.macpanel.ipv6 -f /etc/pf.anchors/...
 // 只影响本应用的 anchor，不触碰主规则集与其它 anchor。
 func (e *PFExecutor) Load(ctx context.Context, anchor, path string) error {
 	if anchor != e.anchorName {

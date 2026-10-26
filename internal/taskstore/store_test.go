@@ -551,12 +551,12 @@ func TestSetLauncherLabel(t *testing.T) {
 	ctx := context.Background()
 
 	created, _ := s.Create(ctx, sampleTask())
-	if err := s.SetLauncherLabel(ctx, created.ID, "com.homelab.manager.task.7"); err != nil {
+	if err := s.SetLauncherLabel(ctx, created.ID, "com.macpanel.task.7"); err != nil {
 		t.Fatalf("设置标签失败: %v", err)
 	}
 
 	task, _ := s.Get(ctx, created.ID)
-	if task.LauncherLabel != "com.homelab.manager.task.7" {
+	if task.LauncherLabel != "com.macpanel.task.7" {
 		t.Errorf("标签未保存，实际 %q", task.LauncherLabel)
 	}
 }

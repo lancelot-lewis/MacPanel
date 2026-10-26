@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  HomeLab Manager — Root Agent 的 launchd 服务定义。
+  MacPanel — Root Agent 的 launchd 服务定义。
 
-  安装位置：/Library/LaunchDaemons/com.homelab.manager.agent.plist
+  安装位置：/Library/LaunchDaemons/com.macpanel.agent.plist
   运行身份：root（需要读取 /dev/pf、未来需要执行 pfctl 与 launchctl）
   启动时机：系统启动即运行，不依赖用户登录
 
@@ -13,7 +13,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.homelab.manager.agent</string>
+	<string>com.macpanel.agent</string>
 
 	<key>ProgramArguments</key>
 	<array>
@@ -24,17 +24,17 @@
 	<!-- 环境：显式给出全部路径，避免继承不确定的环境变量 -->
 	<key>EnvironmentVariables</key>
 	<dict>
-		<key>HLM_SOCKET_PATH</key>
-		<string>/var/run/homelab-manager/agent.sock</string>
-		<key>HLM_TOKEN_PATH</key>
-		<string>/Library/Application Support/HomeLabManager/ipc.token</string>
-		<key>HLM_DATA_DIR</key>
-		<string>/Library/Application Support/HomeLabManager/data</string>
-		<key>HLM_LOG_DIR</key>
+		<key>MACPANEL_SOCKET_PATH</key>
+		<string>/var/run/macpanel/agent.sock</string>
+		<key>MACPANEL_TOKEN_PATH</key>
+		<string>/Library/Application Support/MacPanel/ipc.token</string>
+		<key>MACPANEL_DATA_DIR</key>
+		<string>/Library/Application Support/MacPanel/data</string>
+		<key>MACPANEL_LOG_DIR</key>
 		<string>__LOG_DIR__</string>
-		<key>HLM_ANCHOR_PATH</key>
-		<string>/etc/pf.anchors/com.homelab.manager.ipv6</string>
-		<key>HLM_LOG_LEVEL</key>
+		<key>MACPANEL_ANCHOR_PATH</key>
+		<string>/etc/pf.anchors/com.macpanel.ipv6</string>
+		<key>MACPANEL_LOG_LEVEL</key>
 		<string>info</string>
 	</dict>
 

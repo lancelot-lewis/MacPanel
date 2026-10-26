@@ -17,7 +17,7 @@
                      │ 必须穿越：IPC 对端 UID 校验 + 共享令牌
                      │ + 时间窗 + 唯一 ID
 ┌────────────────────▼───────────────────────┐
-│ 已授权：Server（_homelab，持有令牌）         │
+│ 已授权：Server（_macpanel，持有令牌）         │
 │        CLI（同一令牌文件可读）                │
 └────────────────────┬───────────────────────┘
                      │ 固定方法白名单，无 exec / 任意文件读写
@@ -75,7 +75,7 @@
 
 必须同时满足：
 
-1. `HLM_ALLOW_REMOTE=true`（否则非回环监听校验失败）；
+1. `MACPANEL_ALLOW_REMOTE=true`（否则非回环监听校验失败）；
 2. 请求携带 `X-HLM-Request: 1` 自定义头（跨站无法在不触发预检的情况下附加）；
 3. 携带有效会话 cookie，通过 `ValidateSession`；
 4. 建议置于 HTTPS 反向代理后（cookie 的 `Secure` 由 `r.TLS` 或 `X-Forwarded-Proto` 决定）。
@@ -154,7 +154,7 @@ Docker Socket 的权限等价于 root：能创建特权容器、挂载宿主机�
 | 单连接请求数 | 8 | `ipc/server.go` |
 | HTTP 请求体 | 64 KiB | `server.maxJSONBody` |
 | HTTP 请求头 | 16 KiB | `http.Server.MaxHeaderBytes` |
-| HTTP 读头/读/写/空闲超时 | 10s / 30s / 60s / 120s | `cmd/homelab-manager` |
+| HTTP 读头/读/写/空闲超时 | 10s / 30s / 60s / 120s | `cmd/macpanel` |
 | 系统命令超时 | 3 秒 | `darwin.cmdTimeout` |
 | 系统命令输出 | 1 MiB | `execx.MaxOutputBytes` |
 | 登录失败 | 5 次 / 15 分钟 / 地址 | `auth.MaxLoginFailures` |
@@ -166,7 +166,7 @@ Docker Socket 的权限等价于 root：能创建特权容器、挂载宿主机�
 | --- | --- | --- | --- |
 | 管理密码 | SQLite `settings` | 随数据库文件 | scrypt 哈希（`scrypt$N$r$p$salt$hash`） |
 | 会话令牌 | SQLite `auth_sessions` | 随数据库文件 | 客户端持有明文，DB 只存 SHA-256 |
-| IPC 共享令牌 | `ipc.token` 文件 | `0600`（安装器设 `0640 root:_homelab`） | 32 字节随机，十六进制表示 |
+| IPC 共享令牌 | `ipc.token` 文件 | `0600`（安装器设 `0640 root:_macpanel`） | 32 字节随机，十六进制表示 |
 
 令牌文件由 `config.WriteTokenFile` 以「创建临时文件 → chmod 0600 → 写入 → fsync → rename」
 的原子方式写入，避免生成半截文件。
@@ -206,7 +206,7 @@ API 响应一律 `Cache-Control: no-store`。
    的智能判断，而是**统一要求风险确认**。误判的代价是失联，
    而统一确认的代价只是多点一次。
 7. **TCP 探测可被用作内网探测**：默认限本机地址，但若开启
-   `HLM_ALLOW_NONLOCAL_PROBE`，面板就具备端口扫描能力。
+   `MACPANEL_ALLOW_NONLOCAL_PROBE`，面板就具备端口扫描能力。
    该开关必须在理解这个后果的前提下开启。
 8. **OrbStack 容器信息暴露**：容器名与镜像名可能透露架构信息。
    接口只对已认证用户开放，但若账号泄露，这些信息会一并暴露。

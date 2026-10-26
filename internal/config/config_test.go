@@ -117,10 +117,10 @@ func TestValidateRejectsRelativePaths(t *testing.T) {
 
 // TestLoadFromEnv 验证环境变量覆盖与解析。
 func TestLoadFromEnv(t *testing.T) {
-	t.Setenv("HLM_LISTEN_ADDR", "127.0.0.1:9000")
-	t.Setenv("HLM_ALLOW_REMOTE", "false")
-	t.Setenv("HLM_ALLOWED_PEER_UIDS", "502, 503")
-	t.Setenv("HLM_DATA_DIR", "/tmp/hlm-test-data")
+	t.Setenv("MACPANEL_LISTEN_ADDR", "127.0.0.1:9000")
+	t.Setenv("MACPANEL_ALLOW_REMOTE", "false")
+	t.Setenv("MACPANEL_ALLOWED_PEER_UIDS", "502, 503")
+	t.Setenv("MACPANEL_DATA_DIR", "/tmp/hlm-test-data")
 
 	cfg, err := LoadFromEnv(ModeServer)
 	if err != nil {
@@ -139,7 +139,7 @@ func TestLoadFromEnv(t *testing.T) {
 
 // TestLoadFromEnvRejectsBadBool 验证非法布尔值直接报错，不静默降级。
 func TestLoadFromEnvRejectsBadBool(t *testing.T) {
-	t.Setenv("HLM_ALLOW_REMOTE", "yes")
+	t.Setenv("MACPANEL_ALLOW_REMOTE", "yes")
 	if _, err := LoadFromEnv(ModeServer); err == nil {
 		t.Fatal("非法布尔值应报错")
 	}
@@ -147,7 +147,7 @@ func TestLoadFromEnvRejectsBadBool(t *testing.T) {
 
 // TestLoadFromEnvRejectsBadUIDs 验证非法 UID 列表报错。
 func TestLoadFromEnvRejectsBadUIDs(t *testing.T) {
-	t.Setenv("HLM_ALLOWED_PEER_UIDS", "502,abc")
+	t.Setenv("MACPANEL_ALLOWED_PEER_UIDS", "502,abc")
 	if _, err := LoadFromEnv(ModeAgent); err == nil {
 		t.Fatal("非法 UID 应报错")
 	}
@@ -279,7 +279,7 @@ func TestIsLoopbackListen(t *testing.T) {
 // 这是实际踩过的坑：面板经代理以别的域名暴露时，写请求的 Origin
 // 是那个域名，而后端只知道自己监听 127.0.0.1 —— 所有 POST 都会被 403。
 func TestPublicHostsParsing(t *testing.T) {
-	t.Setenv("HLM_PUBLIC_HOSTS", " homelab.example.com:443 , localhost:5199 ,, ")
+	t.Setenv("MACPANEL_PUBLIC_HOSTS", " homelab.example.com:443 , localhost:5199 ,, ")
 
 	cfg, err := LoadFromEnv(ModeServer)
 	if err != nil {

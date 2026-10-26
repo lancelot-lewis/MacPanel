@@ -1,4 +1,4 @@
-# HomeLab Manager — 构建与开发
+# MacPanel — 构建与开发
 
 # 版本信息注入
 VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.1.0-dev)
@@ -10,7 +10,7 @@ LDFLAGS    := -s -w \
 	-X github.com/lancelot-lewis/MacPanel/internal/version.BuildTime=$(BUILD_TIME)
 
 BIN_DIR := bin
-BINARY  := $(BIN_DIR)/homelab-manager
+BINARY  := $(BIN_DIR)/macpanel
 
 # Go 可能由 mise 管理，若 PATH 中找不到则回退到 mise shim。
 GO := $(shell command -v go 2>/dev/null || echo $(HOME)/.local/share/mise/shims/go)
@@ -47,13 +47,13 @@ web-typecheck: ## 前端类型检查
 .PHONY: build
 build: web-build ## 构建二进制（含内嵌前端）
 	@mkdir -p $(BIN_DIR)
-	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/homelab-manager
+	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/macpanel
 	@echo "已生成 $(BINARY)（$(VERSION)）"
 
 .PHONY: build-go
 build-go: ## 只构建二进制（跳过前端，用于后端迭代）
 	@mkdir -p $(BIN_DIR)
-	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/homelab-manager
+	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/macpanel
 
 .PHONY: test
 test: ## 运行全部 Go 测试

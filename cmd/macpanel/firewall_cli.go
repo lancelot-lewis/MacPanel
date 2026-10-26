@@ -54,7 +54,7 @@ func runFirewallCLI(args []string) error {
 
 func printFirewallUsage() {
 	fmt.Print(`用法:
-  homelab-manager firewall <status|rollback|unload> [选项]
+  macpanel firewall <status|rollback|unload> [选项]
 
 子命令:
   status    查看 PF 状态、事务阶段、回滚倒计时（纯只读）
@@ -113,7 +113,7 @@ func runFirewallRollback(args []string) error {
 		// idle 是最常见的「无需回滚」：此时若 anchor 里还有残留规则，
 		// 提示改用 unload，而不是让用户以为命令失效。
 		if model.AsError(err).Code == model.CodeConflict {
-			return fmt.Errorf("%w\n若 anchor 中仍有本应用的规则残留，请改用：homelab-manager firewall unload", err)
+			return fmt.Errorf("%w\n若 anchor 中仍有本应用的规则残留，请改用：macpanel firewall unload", err)
 		}
 		return err
 	}

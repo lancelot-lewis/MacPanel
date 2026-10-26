@@ -148,7 +148,7 @@ func withSecurityHeaders(next http.Handler) http.Handler {
 // hostGuard 校验 Host 头，防御 DNS rebinding。
 //
 // 允许的 Host：配置的监听地址（含端口）、localhost、以及回环地址。
-// 远程模式下还允许显式配置的外部域名（HLM_PUBLIC_HOST）。
+// 远程模式下还允许显式配置的外部域名（MACPANEL_PUBLIC_HOST）。
 type hostGuard struct {
 	allowed  map[string]bool
 	wildcard bool // 监听所有网卡时，Host 只做基础校验

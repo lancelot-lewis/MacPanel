@@ -191,7 +191,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		Installer:    env.installer,
 		Power:        env.power,
 		Auditor:      env.auditor,
-		BinPath:      "/usr/local/bin/homelab-manager",
+		BinPath:      "/usr/local/bin/macpanel",
 		LogDir:       "/tmp/hlm-test-logs",
 		Now:          env.currentTime,
 		TickInterval: time.Hour, // 测试中不真的跑 ticker
@@ -346,7 +346,7 @@ func TestSyncRemovesOrphanPlist(t *testing.T) {
 	orphan := launcherLabel(999)
 	if err := env.installer.Install(ctx, launchd.Spec{
 		Label:                 orphan,
-		ProgramArguments:      []string{"/usr/local/bin/homelab-manager", "task-run", "--task", "999"},
+		ProgramArguments:      []string{"/usr/local/bin/macpanel", "task-run", "--task", "999"},
 		StartCalendarInterval: []launchd.CalendarInterval{{Hour: launchd.IntPtr(4), Minute: launchd.IntPtr(30)}},
 	}); err != nil {
 		t.Fatalf("准备孤儿 plist 失败: %v", err)
@@ -1155,7 +1155,7 @@ func TestLocalBinPathValidation(t *testing.T) {
 		Store:     nil,
 		Installer: newFakeInstaller(t),
 		Power:     fake.NewPower(),
-		BinPath:   "/usr/local/bin/homelab-manager",
+		BinPath:   "/usr/local/bin/macpanel",
 	})
 	if err == nil {
 		t.Error("缺少 Store 应拒绝构造")

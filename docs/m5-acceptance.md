@@ -13,10 +13,10 @@
 | PKG 构建 | `packaging/macos/pkg/build-pkg.sh` |
 | 升级前备份 | `packaging/macos/pkg/build/scripts/preinstall`（由构建脚本生成） |
 | 安装后初始化 | `packaging/macos/pkg/build/scripts/postinstall` |
-| 卸载脚本（随包安装） | `packaging/macos/uninstall.sh` → `/usr/local/bin/homelab-manager-uninstall` |
+| 卸载脚本（随包安装） | `packaging/macos/uninstall.sh` → `/usr/local/bin/macpanel-uninstall` |
 | DMG 构建 | `packaging/macos/dmg/build-dmg.sh` |
 | 包结构静态校验 | `scripts/verify-pkg.sh`（`make verify-pkg`） |
-| 防火墙本地救援 CLI | `cmd/homelab-manager/firewall_cli.go`（`status` / `rollback` / `unload`） |
+| 防火墙本地救援 CLI | `cmd/macpanel/firewall_cli.go`（`status` / `rollback` / `unload`） |
 | 救援文档 | `docs/recovery.md` 第 3.8 节 |
 
 ---
@@ -26,8 +26,8 @@
 ### 2.1 构建链路
 
 ```text
-make pkg   → HomeLabManager-0.1.0.pkg   5.9 MB
-make dmg   → HomeLabManager-0.1.0.dmg   6.0 MB
+make pkg   → MacPanel-0.1.0.pkg   5.9 MB
+make dmg   → MacPanel-0.1.0.dmg   6.0 MB
 make verify-pkg → 通过 30 项，警告 1 项，失败 0 项
 ```
 
@@ -41,20 +41,20 @@ make verify-pkg → 通过 30 项，警告 1 项，失败 0 项
 | 包结构 | 可展开、`Bom` / `Payload` / `PackageInfo` / `Scripts` 齐备、含 `preinstall` 与 `postinstall` |
 | 脚本内容 | 无占位符残留、preinstall 做备份、postinstall 提到卸载与救援命令 |
 | 文件清单 | 二进制与卸载脚本 100755、plist 100644、`Payload` 不含数据目录 |
-| 运行身份 | agent 以 `root`、server 以 `_homelab`、anchor 名带 `manager` 前缀 |
+| 运行身份 | agent 以 `root`、server 以 `_macpanel`、anchor 名带 `manager` 前缀 |
 
 ### 2.2 防火墙救援 CLI
 
 本机非 root，因此以下均在 dry-run 下执行（流程走到、不改系统）：
 
 ```text
-$ bin/homelab-manager firewall status -dev
+$ bin/macpanel firewall status -dev
 == IPv6 防火墙 ==
   模式       dry-run（不会改动系统）
   事务状态   /…/MacPanel/.dev/run/firewall-state.json
   PF         未知（不可读）
              读取受限: pfctl: /dev/pf: Permission denied
-  Anchor     com.homelab.manager.ipv6（文件存在）
+  Anchor     com.macpanel.ipv6（文件存在）
   规则文件   /…/.dev/pf.anchor（存在=true，主配置引用=false）
              大小 880 字节
   期望状态   not_configured
@@ -101,27 +101,27 @@ $ bin/homelab-manager firewall status -dev
 # 1. 记录安装前基线（便于事后对比有没有污染系统）
 sudo pfctl -s info | head -5
 sudo pfctl -s Anchors | wc -l
-launchctl print system/com.homelab.manager.agent 2>&1 | head -3   # 期望：不存在
-id _homelab                                                        # 期望：不存在
+launchctl print system/com.macpanel.agent 2>&1 | head -3   # 期望：不存在
+id _macpanel                                                        # 期望：不存在
 
 # 2. 安装
-sudo installer -pkg HomeLabManager-0.1.0.pkg -target /
+sudo installer -pkg MacPanel-0.1.0.pkg -target /
 ```
 
 预期结果（逐条确认）：
 
 - [ ] 安装器退出码 0，未报 `preinstall/postinstall` 错误
-- [ ] `id _homelab` 存在且隐藏（`dscl . -read /Users/_homelab IsHidden` = 1）
-- [ ] `/usr/local/bin/homelab-manager` 与 `homelab-manager-uninstall` 均存在且 0755
-- [ ] `sudo launchctl print system/com.homelab.manager.agent` 有输出，`state = running`
-- [ ] `sudo launchctl print system/com.homelab.manager.server` 有输出，所属用户为 `_homelab`
+- [ ] `id _macpanel` 存在且隐藏（`dscl . -read /Users/_macpanel IsHidden` = 1）
+- [ ] `/usr/local/bin/macpanel` 与 `macpanel-uninstall` 均存在且 0755
+- [ ] `sudo launchctl print system/com.macpanel.agent` 有输出，`state = running`
+- [ ] `sudo launchctl print system/com.macpanel.server` 有输出，所属用户为 `_macpanel`
 - [ ] `curl -s http://127.0.0.1:7788/api/v1/healthz` 返回 OK
 - [ ] 浏览器打开 `http://127.0.0.1:7788`，概览页显示真实 CPU / 内存 / 磁盘
-- [ ] `/Library/Application Support/HomeLabManager` 属主 root:wheel 0750，
-      其中 `data` 属主 `_homelab` 0700
-- [ ] IPC 令牌 `root:_homelab 0640`
-- [ ] `/Library/Logs/HomeLabManager` 下出现 agent / server 日志且**没有报错堆栈**
-- [ ] `sudo homelab-manager firewall status` 显示「空闲」，PF 状态为真实值（非「未知」）
+- [ ] `/Library/Application Support/MacPanel` 属主 root:wheel 0750，
+      其中 `data` 属主 `_macpanel` 0700
+- [ ] IPC 令牌 `root:_macpanel 0640`
+- [ ] `/Library/Logs/MacPanel` 下出现 agent / server 日志且**没有报错堆栈**
+- [ ] `sudo macpanel firewall status` 显示「空闲」，PF 状态为真实值（非「未知」）
 - [ ] 安装**没有**修改 `/etc/pf.conf`、没有新增 anchor 文件
 
 重启后复核：
@@ -135,13 +135,13 @@ sudo installer -pkg HomeLabManager-0.1.0.pkg -target /
 ```bash
 # 1. 先制造一些数据：建一条防火墙规则、登记一个受管服务、设一个计划任务
 # 2. 记录当前版本号
-/usr/local/bin/homelab-manager version
+/usr/local/bin/macpanel version
 
 # 3. 安装同包第二遍（模拟升级）
-sudo installer -pkg HomeLabManager-0.1.0.pkg -target /
+sudo installer -pkg MacPanel-0.1.0.pkg -target /
 ```
 
-- [ ] `/Library/Application Support/HomeLabManager/backups/preupgrade-<时间戳>/` 生成
+- [ ] `/Library/Application Support/MacPanel/backups/preupgrade-<时间戳>/` 生成
 - [ ] 备份目录内含 `data`、`ipc.token`、`pf-info.txt`、`pf-anchors.txt`
 - [ ] 原有防火墙规则 / 受管服务 / 计划任务**全部还在**
 - [ ] 令牌未被重新生成（两个服务仍正常通信）
@@ -156,15 +156,15 @@ sudo installer -pkg HomeLabManager-0.1.0.pkg -target /
 ```bash
 # 1. 在面板里应用一条会阻断自己的规则（例如拒绝全部入站 TCP）
 #    故意不在 60 秒内确认
-sudo homelab-manager firewall status      # 期望：阶段=待确认 + 剩余秒数
+sudo macpanel firewall status      # 期望：阶段=待确认 + 剩余秒数
 ```
 
 - [ ] `status` 显示的剩余秒数与面板倒计时一致（±2 秒）
 - [ ] 不确认，等到倒计时归零 → anchor 被自动清空，网络恢复
-- [ ] Agent 模拟崩溃（`sudo launchctl kill SIGKILL system/com.homelab.manager.agent`）
+- [ ] Agent 模拟崩溃（`sudo launchctl kill SIGKILL system/com.macpanel.agent`）
       后在倒计时内 → launchd 自动拉起，倒计时**继续**（不重置）
 - [ ] Agent 崩溃且**已过**截止时间 → 重启后 `status` 显示已回滚
-- [ ] 规则挡住 SSH 时，在物理终端执行 `sudo homelab-manager firewall rollback` 立刻恢复
+- [ ] 规则挡住 SSH 时，在物理终端执行 `sudo macpanel firewall rollback` 立刻恢复
 - [ ] 手工把状态文件删掉后，`rollback` 报 conflict，`unload` 仍能清空 anchor
 - [ ] 全程 `pfctl -s info` 的 PF 全局状态**始终没有变成 Disabled**（不得 kill 全局 PF）
 - [ ] 其它程序的 anchor 未被影响（`pfctl -s Anchors` 前后一致，只少了本应用那一条）
@@ -172,17 +172,17 @@ sudo homelab-manager firewall status      # 期望：阶段=待确认 + 剩余�
 ### 3.4 卸载
 
 ```bash
-sudo homelab-manager-uninstall
+sudo macpanel-uninstall
 ```
 
 - [ ] 两个 launchd 服务被 bootout 且 plist 被删除
-- [ ] `/usr/local/bin/homelab-manager` 与卸载脚本本身被删除
-- [ ] `/var/run/homelab-manager` 被删除
+- [ ] `/usr/local/bin/macpanel` 与卸载脚本本身被删除
+- [ ] `/var/run/macpanel` 被删除
 - [ ] 数据目录**默认保留**（提示了 `backups/` 可找回）
 - [ ] 从未执行过 `pfctl -d`（`sudo pfctl -s info` 仍显示 Enabled）
 - [ ] `/etc/pf.conf` 未被修改，第三方 anchor 完好
 - [ ] 用 `--purge` 再跑一遍（先重装），数据与日志被删除
-- [ ] AppleDouble 残留（`._homelab-manager` 等）被清掉
+- [ ] AppleDouble 残留（`._macpanel` 等）被清掉
 - [ ] 卸载后重装可以正常回到 3.1 的状态
 
 ### 3.5 与前几个里程碑的交叉项
@@ -204,7 +204,7 @@ sudo homelab-manager-uninstall
 | DMG 脚本用 `arr[-1]` | macOS 自带 bash 3.2 不支持 negative subscript | 改用 `tail -1` |
 | 升级会覆盖现有数据且无退路 | 没有 preinstall | 新增 preinstall：停服务 → 备份 data / 令牌 / PF 现状 → 只留最近 5 份 |
 | 硬编码 UID/GID 350 | 与其它软件撞号时 `dscl -create` 失败会让**整个安装失败** | 从 350 起向下找空位；用户与组分别判定；最后对齐 PrimaryGroupID |
-| 卸载脚本只存在于 build 目录，出事时找不到 | 它没进包 | 作为 `packaging/macos/uninstall.sh` 入库，并装到 `/usr/local/bin/homelab-manager-uninstall` |
+| 卸载脚本只存在于 build 目录，出事时找不到 | 它没进包 | 作为 `packaging/macos/uninstall.sh` 入库，并装到 `/usr/local/bin/macpanel-uninstall` |
 | 卸载只能交互执行 | `read -r -p` 阻塞自动化 | 支持 `--yes` / `--purge`；非 root 明确拒绝 |
 | 卸载未处理加载到一半的 anchor | 只提示，不清空 | 先 `pfctl -a <anchor> -f /dev/null` 清空，再谈删文件 |
 | 文档与安装说明写着「M1 完全只读」 | M2 之后未更新 | 改为当前真实行为 + 救援命令 |
@@ -222,7 +222,7 @@ sudo homelab-manager-uninstall
    那时 `make verify-pkg` 的这一条警告应当消失。
 2. **未签名、未公证**：Gatekeeper 会拦截，需在「隐私与安全性」手动放行。
    分发前必须做 Developer ID 签名 + 公证。
-3. **`homelab-manager` 的二进制出入口在 `/usr/local/bin`**：Apple Silicon 上该路径存在且可用，
+3. **`macpanel` 的二进制出入口在 `/usr/local/bin`**：Apple Silicon 上该路径存在且可用，
    但如果目标机器启用了某些 MDM 策略限制写入，需要改用 `/opt/homebrew/bin` 之类路径。
 4. **升级尚未实机演练**：preinstall 的备份逻辑已写好并通过静态检查，但没有在真机上跑过一次。
 5. **`ThrottleInterval=10` + `KeepAlive`**：Agent 崩溃循环最快每 10 秒一次；

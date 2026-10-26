@@ -44,10 +44,10 @@
 实测生成内容（dev 模式，任务 ID=1）：
 
 ```xml
-<key>Label</key><string>com.homelab.manager.task.1</string>
+<key>Label</key><string>com.macpanel.task.1</string>
 <key>ProgramArguments</key>
 <array>
-    <string>/.../bin/homelab-manager</string>
+    <string>/.../bin/macpanel</string>
     <string>task-run</string>
     <string>--task</string>
     <string>1</string>
@@ -205,8 +205,8 @@ dozzle      running  tcp/8080（未映射）
 
 | 变量 | 作用 | 默认 |
 | --- | --- | --- |
-| `HLM_ALLOW_NONLOCAL_PROBE` | 设为 `1` 允许 TCP 探测外部地址 | 关闭 |
-| `HLM_PUBLIC_HOSTS` | 反向代理部署时额外允许的 Host | 空 |
+| `MACPANEL_ALLOW_NONLOCAL_PROBE` | 设为 `1` 允许 TCP 探测外部地址 | 关闭 |
+| `MACPANEL_PUBLIC_HOSTS` | 反向代理部署时额外允许的 Host | 空 |
 
 ---
 
@@ -288,7 +288,7 @@ internal/agent                      12.8%   ← 见下方说明
 `com.homelab.ipv6` launchd 服务确实存在于本机（`/Library/LaunchDaemons/com.homelab.ipv6.plist`），
 这解释了 M2 阶段那个来源不明的 `/etc/pf.anchors/com.homelab.ipv6` anchor。
 
-**它不是本项目创建的**，本项目使用 `com.homelab.manager.ipv6`，两者互不干扰。
+**它不是本项目创建的**，本项目使用 `com.macpanel.ipv6`，两者互不干扰。
 M4 的服务列表会把它显示为一个普通第三方服务，可正常观察但需显式登记才可操作。
 
 ---

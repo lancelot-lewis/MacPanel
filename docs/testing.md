@@ -319,7 +319,7 @@ DST 跳变、跨年、时钟回拨、错过执行窗口、循环重启间隔…�
 ```text
 测试函数      368 → 377
 internal/platform/darwin/firewalld   43.2% → 44.7%（新增 Unload 及其测试）
-cmd/homelab-manager                  新增 CLI 单元测试（路径一致性、日志渲染、阶段文案）
+cmd/macpanel                  新增 CLI 单元测试（路径一致性、日志渲染、阶段文案）
 合计覆盖率                           54.5% → 53.2%（分母变大，不是退步）
 ```
 
@@ -336,7 +336,7 @@ cmd/homelab-manager                  新增 CLI 单元测试（路径一致性�
 
 ### 4.1 构建与启动
 
-- [x] `make build` 成功，产出 `bin/homelab-manager`（约 11 MB）
+- [x] `make build` 成功，产出 `bin/macpanel`（约 11 MB）
 - [x] `make dev-token` 生成令牌，文件权限 0600
 - [x] `make dev-agent` 启动成功，日志显示 4 个方法已注册
 - [x] `make dev-server` 启动成功，监听 `127.0.0.1:7788`
@@ -420,7 +420,7 @@ cmd/homelab-manager                  新增 CLI 单元测试（路径一致性�
 ### 4.6 打包
 
 ```bash
-make pkg          # 产出 HomeLabManager-<version>.pkg
+make pkg          # 产出 MacPanel-<version>.pkg
 make verify-pkg   # 不需要 root 的结构校验（见下文）
 make dmg          # 产出同名 .dmg
 ```
@@ -430,7 +430,7 @@ make dmg          # 产出同名 .dmg
 - [x] `scripts/verify-pkg.sh` 静态校验：30 项通过，0 项失败
       （脚本语法、plist、占位符、BOM 清单与权限、launchd 运行身份）
 - [x] DMG 构建成功并能找到 PKG——此前版本推导方式不一致导致必然失败，已修复
-- [x] 卸载脚本随包安装到 `/usr/local/bin/homelab-manager-uninstall`
+- [x] 卸载脚本随包安装到 `/usr/local/bin/macpanel-uninstall`
 - [ ] PKG 在干净系统安装验证（M5）
 - [ ] 升级流程与 preinstall 备份恢复验证（M5）
 - [ ] DMG 挂载与安装器交互流程验证（M5）
@@ -467,7 +467,7 @@ ifconfig en0 | grep inet6
 ### 基础连通性（不变量 1–4）
 
 - [ ] `pfctl -n -f` 对生成的规则文件返回 0（语法通过）
-- [ ] 应用后 `sudo pfctl -a com.homelab.manager.ipv6 -sr` 能看到全部规则
+- [ ] 应用后 `sudo pfctl -a com.macpanel.ipv6 -sr` 能看到全部规则
 - [ ] `ping6 ::1` 正常（不变量 2）
 - [ ] `ping6 <本机公网 IPv6>` 正常（不变量 2）
 - [ ] 主动 `curl -6 https://example.com` 正常（不变量 3）
@@ -494,9 +494,9 @@ ifconfig en0 | grep inet6
 
 ### 崩溃恢复
 
-- [ ] 应用规则后（不确认）立即 `sudo launchctl kickstart -k system/com.homelab.manager.agent`
+- [ ] 应用规则后（不确认）立即 `sudo launchctl kickstart -k system/com.macpanel.agent`
 - [ ] Agent 重启后：若已超时则自动回滚；若未超时则保留原 deadline
-- [ ] 检查 `/var/run/homelab-manager/firewall-state.json` 的 `deadline` 未被重置
+- [ ] 检查 `/var/run/macpanel/firewall-state.json` 的 `deadline` 未被重置
 
 ### 环境变化
 

@@ -72,7 +72,7 @@ func (f *fakeRunner) hasCall(sub string) bool {
 func sampleSpec() Spec {
 	return Spec{
 		Label:            LabelPrefix + "task.7",
-		ProgramArguments: []string{"/usr/local/bin/homelab-manager", "task-run", "--task", "7"},
+		ProgramArguments: []string{"/usr/local/bin/macpanel", "task-run", "--task", "7"},
 		StartCalendarInterval: []CalendarInterval{
 			{Hour: IntPtr(4), Minute: IntPtr(30)},
 		},
@@ -92,7 +92,7 @@ func TestRenderPlistDaily(t *testing.T) {
 	checks := []string{
 		`<?xml version="1.0" encoding="UTF-8"?>`,
 		`<key>Label</key>`,
-		`<string>com.homelab.manager.task.7</string>`,
+		`<string>com.macpanel.task.7</string>`,
 		`<key>ProgramArguments</key>`,
 		`<string>task-run</string>`,
 		`<string>--task</string>`,
@@ -175,7 +175,7 @@ func TestRenderPlistInterval(t *testing.T) {
 func TestRenderPlistEscapesXMLEntities(t *testing.T) {
 	spec := sampleSpec()
 	spec.ProgramArguments = []string{
-		"/usr/local/bin/homelab-manager",
+		"/usr/local/bin/macpanel",
 		"task-run",
 		"--note", "a<b&c>d\"e'f",
 	}
@@ -204,10 +204,14 @@ func TestValidateRejectsForeignLabel(t *testing.T) {
 		"",
 		"com.apple.something",
 		"com.example.mine",
-		"homelab.manager.task.1",
-		"com.homelab.manager.Task.1", // 大写
-		"com.homelab.manager...",     // 非法字符
-		"com.homelab.manager.a/b",    // 路径分隔符
+		// 本机真实存在的第三方服务：不是本应用创建的，绝不能被本应用操作。
+		"com.homelab.ipv6",
+		// 自家 label 但漏了 com. 前缀——拼写不完整的也要拒绝，
+		// 否则它会被当成一个来源不明的服务。
+		"macpanel.task.1",
+		"com.macpanel.Task.1", // 大写
+		"com.macpanel...",     // 非法字符
+		"com.macpanel.a/b",    // 路径分隔符
 	}
 
 	for _, label := range cases {
@@ -216,6 +220,22 @@ func TestValidateRejectsForeignLabel(t *testing.T) {
 			spec.Label = label
 			if err := spec.Validate(); err == nil {
 				t.Errorf("应拒绝 label %q", label)
+			}
+		})
+	}
+}
+
+// TestValidateAcceptsOwnLabel 验证本应用自己的 label 确实被放行。
+//
+// 与上一条互为反向：只测「拒绝外部」不够，校验写严了会让自家任务一个都装不上，
+// 而这种失败只在真正创建计划任务时才暴露。
+func TestValidateAcceptsOwnLabel(t *testing.T) {
+	for _, label := range []string{"com.macpanel.task.1", "com.macpanel.task.42"} {
+		t.Run(label, func(t *testing.T) {
+			spec := sampleSpec()
+			spec.Label = label
+			if err := spec.Validate(); err != nil {
+				t.Errorf("应接受本应用的 label %q，实际报错: %v", label, err)
 			}
 		})
 	}
@@ -323,7 +343,7 @@ func TestInstallWritesAndBootstraps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取 plist 失败: %v", err)
 	}
-	if !strings.Contains(string(data), "com.homelab.manager.task.7") {
+	if !strings.Contains(string(data), "com.macpanel.task.7") {
 		t.Error("文件内容不对")
 	}
 

@@ -64,11 +64,11 @@ func wireFirewall(
 	}
 
 	timeout := 60 * time.Second
-	if v := os.Getenv("HLM_CONFIRM_TIMEOUT"); v != "" {
+	if v := os.Getenv("MACPANEL_CONFIRM_TIMEOUT"); v != "" {
 		if d, perr := time.ParseDuration(v); perr == nil {
 			timeout = d
 		} else {
-			log.Warn("HLM_CONFIRM_TIMEOUT 解析失败，使用默认 60s", "value", v, "error", perr)
+			log.Warn("MACPANEL_CONFIRM_TIMEOUT 解析失败，使用默认 60s", "value", v, "error", perr)
 		}
 	}
 
