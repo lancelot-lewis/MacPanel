@@ -22,8 +22,12 @@ func openTestDB(t *testing.T) *DB {
 // TestMigrateCreatesSchema 验证迁移创建了所有预期表。
 func TestMigrateCreatesSchema(t *testing.T) {
 	db := openTestDB(t)
-	if got := db.SchemaVersion(); got != 2 {
-		t.Fatalf("schema 版本应为 2，实际 %d", got)
+
+	// 期望版本取自迁移列表本身，避免每新增一次迁移就要改一遍测试
+	// （那种「改测试让它变绿」的习惯会掩盖真正的迁移缺失）。
+	wantVersion := len(migrations)
+	if got := db.SchemaVersion(); got != wantVersion {
+		t.Fatalf("schema 版本应为 %d，实际 %d", wantVersion, got)
 	}
 
 	expected := []string{
@@ -297,5 +301,81 @@ func TestAuditLogsResultConstraint(t *testing.T) {
 		`INSERT INTO audit_logs (at, actor, action, result) VALUES (?, 'a', 'act', 'maybe')`, now)
 	if err == nil {
 		t.Fatal("非法 result 应被约束拒绝")
+	}
+}
+
+// TestMigrateV3AddsTaskColumns 验证 v3 为计划任务增加的列存在且默认值合理。
+//
+// 重点验证默认值：min_interval_seconds 默认必须是 1800（30 分钟），
+// 因为它是防循环重启的安全下限；若默认成 0，任何历史任务都会
+// 通过「最短间隔」检查，等于没有保护。
+func TestMigrateV3AddsTaskColumns(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+
+	now := FormatTime(Now())
+	_, err := db.SQL().ExecContext(ctx, `
+		INSERT INTO scheduled_tasks (name, kind, schedule, created_at, updated_at)
+		VALUES ('历史任务', 'reboot', '每天 04:30', ?, ?)`, now, now)
+	if err != nil {
+		t.Fatalf("插入任务失败: %v", err)
+	}
+
+	var (
+		recurrenceJSON string
+		catchUp        string
+		catchUpWindow  int
+		minInterval    int
+		failCount      int
+		lastError      string
+		disabledReason string
+		launcherLabel  string
+	)
+	err = db.SQL().QueryRowContext(ctx, `
+		SELECT recurrence_json, catch_up, catch_up_window_seconds,
+		       min_interval_seconds, fail_count, last_error,
+		       disabled_reason, launcher_label
+		FROM scheduled_tasks WHERE name = '历史任务'`).Scan(
+		&recurrenceJSON, &catchUp, &catchUpWindow, &minInterval,
+		&failCount, &lastError, &disabledReason, &launcherLabel)
+	if err != nil {
+		t.Fatalf("读取新增列失败: %v", err)
+	}
+
+	if recurrenceJSON != "" {
+		t.Errorf("历史行的 recurrence_json 应为空串，实际 %q", recurrenceJSON)
+	}
+	if catchUp != "never" {
+		t.Errorf("补执行策略默认应为 never，实际 %q", catchUp)
+	}
+	if catchUpWindow != 0 {
+		t.Errorf("补执行窗口默认应为 0，实际 %d", catchUpWindow)
+	}
+	if minInterval != 1800 {
+		t.Errorf("最短间隔默认应为 1800 秒（防循环重启），实际 %d", minInterval)
+	}
+	if failCount != 0 || lastError != "" || disabledReason != "" || launcherLabel != "" {
+		t.Errorf("其余默认值应全为空/零: %d %q %q %q",
+			failCount, lastError, disabledReason, launcherLabel)
+	}
+}
+
+// TestMigrationsAreOrdered 验证迁移版本连续且升序。
+//
+// 版本号跳跃会让「按版本升序执行」的逻辑跳过某个迁移而不报错，
+// 结果是表结构缺少字段，直到运行时才暴露。
+func TestMigrationsAreOrdered(t *testing.T) {
+	for i, m := range migrations {
+		want := i + 1
+		if m.Version != want {
+			t.Errorf("第 %d 个迁移的版本应为 %d，实际 %d（%s）",
+				i+1, want, m.Version, m.Description)
+		}
+		if m.Description == "" {
+			t.Errorf("迁移 v%d 缺少描述", m.Version)
+		}
+		if m.Up == nil {
+			t.Errorf("迁移 v%d 缺少 Up 函数", m.Version)
+		}
 	}
 }

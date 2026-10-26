@@ -26,6 +26,11 @@ var migrations = []migration{
 		Description: "M2：规则集会话语义（默认拒绝接口）与规则版本快照内容",
 		Up:          migrateV2,
 	},
+	{
+		Version:     3,
+		Description: "M3：计划任务的递归表达式、补执行策略与失败熔断字段",
+		Up:          migrateV3,
+	},
 }
 
 const createSchemaMigrations = `
@@ -252,6 +257,51 @@ func migrateV2(ctx context.Context, tx *sql.Tx) error {
 		// 规则唯一性辅助：同名规则容易混淆，加索引便于提示（不强制唯一，
 		// 因为用户可能确实需要两条同名但不同端口的规则）。
 		`CREATE INDEX IF NOT EXISTS idx_firewall_rules_enabled ON firewall_rules(enabled, position)`,
+	}
+
+	for _, s := range stmts {
+		if _, err := tx.ExecContext(ctx, s); err != nil {
+			return fmt.Errorf("执行 DDL 失败: %w\nSQL: %s", err, s)
+		}
+	}
+	return nil
+}
+
+// migrateV3 为 M3 补齐计划任务所需的字段。
+//
+// 设计要点：
+//   - recurrence_json 存结构化表达式，schedule 列改存人读描述。
+//     两者都要：界面直接显示描述（不必在前端复刻表达式逻辑），
+//     而计算下次执行必须用结构化数据。
+//   - min_interval_seconds 落库而不是用常量：它是安全不变量，
+//     存下来才能在界面上回显「当前生效的下限」，用户改配置时也看得见。
+//   - fail_count 与 disabled_reason 支撑「连续失败自动禁用」，
+//     重启后仍然有效——否则每次重启都从 0 开始计数，熔断永不触发。
+func migrateV3(ctx context.Context, tx *sql.Tx) error {
+	stmts := []string{
+		// 结构化递归表达式（JSON）。
+		`ALTER TABLE scheduled_tasks ADD COLUMN recurrence_json TEXT NOT NULL DEFAULT ''`,
+
+		// 补执行策略：never / within_window。
+		`ALTER TABLE scheduled_tasks ADD COLUMN catch_up TEXT NOT NULL DEFAULT 'never'`,
+		`ALTER TABLE scheduled_tasks ADD COLUMN catch_up_window_seconds INTEGER NOT NULL DEFAULT 0`,
+
+		// 最短执行间隔（秒）。默认 1800 = 30 分钟。
+		`ALTER TABLE scheduled_tasks ADD COLUMN min_interval_seconds INTEGER NOT NULL DEFAULT 1800`,
+
+		// 连续失败计数与最近错误，用于熔断与界面展示。
+		`ALTER TABLE scheduled_tasks ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE scheduled_tasks ADD COLUMN last_error TEXT NOT NULL DEFAULT ''`,
+
+		// 自动禁用的原因（如「连续失败 3 次」）。
+		`ALTER TABLE scheduled_tasks ADD COLUMN disabled_reason TEXT NOT NULL DEFAULT ''`,
+
+		// 调度器安装状态：launchd 标签，空串表示未安装。
+		`ALTER TABLE scheduled_tasks ADD COLUMN launcher_label TEXT NOT NULL DEFAULT ''`,
+
+		// 待执行重启的持久化。放 settings 而不是新表：
+		// 全局只有一个待执行重启，用新表会引入「哪一行是当前的有效」这种歧义。
+		`CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled ON scheduled_tasks(enabled, next_run_at)`,
 	}
 
 	for _, s := range stmts {
