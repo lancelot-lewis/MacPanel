@@ -14,6 +14,7 @@ package launchd
 import (
 	"bytes"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"text/template"
 )
@@ -23,6 +24,12 @@ import (
 // 强制前缀是「只操作自己的服务」的基础：没有它，一个错误的 label
 // 就可能 bootout 掉系统关键服务。
 const LabelPrefix = "com.macpanel."
+
+// binaryName 是本应用二进制的文件名。
+//
+// 与 LabelPrefix 分开定义：前者用于校验 ProgramArguments，后者用于 label。
+// 两处都要随改名一起动，因此集中在这里，不散落在校验逻辑里。
+const binaryName = "macpanel"
 
 // DaemonDir 是系统级 LaunchDaemon 的固定目录。
 const DaemonDir = "/Library/LaunchDaemons"
@@ -80,8 +87,10 @@ func (s Spec) Validate() error {
 	// 必须是本应用二进制。这一条挡的是「改数据库就能让 root 执行任意程序」：
 	// 即使有人能写入 scheduled_tasks，也无法让 launchd 执行 /bin/sh。
 	//
-	if !strings.Contains(prog, "macpanel") {
-		return fmt.Errorf("launchd: 可执行文件必须是 macpanel，实际 %q", prog)
+	// 用 basename 精确比对而不是 strings.Contains：后者会放行
+	// /tmp/evil-macpanel 这类路径——名字里含本应用名，但不是本应用。
+	if filepath.Base(prog) != binaryName {
+		return fmt.Errorf("launchd: 可执行文件必须是 %s，实际 %q", binaryName, prog)
 	}
 
 	if s.RunAtLoad {
