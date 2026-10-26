@@ -103,7 +103,12 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/v1/schedules/executions", s.handleScheduleExecutions)
 	api.HandleFunc("POST /api/v1/schedules/{id}/run", s.handleScheduleRunNow)
 	api.HandleFunc("POST /api/v1/schedules/sync", s.handleScheduleSync)
-	api.HandleFunc("GET /api/v1/services", s.handleNotImplemented("启动项管理"))
+	// M4：启动项管理
+	api.HandleFunc("GET /api/v1/services", s.handleServicesList)
+	api.HandleFunc("GET /api/v1/services/detail", s.handleServiceDetail)
+	api.HandleFunc("POST /api/v1/services/register", s.handleServiceRegister)
+	api.HandleFunc("DELETE /api/v1/services/register", s.handleServiceUnregister)
+	api.HandleFunc("POST /api/v1/services/control", s.handleServiceControl)
 
 	api.HandleFunc("GET /api/v1/audit", s.handleAuditList)
 	api.HandleFunc("GET /api/v1/meta", s.handleMeta)
@@ -174,7 +179,7 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 			"firewallRead":    true,
 			"firewallWrite":   true,
 			"powerControl":    true,
-			"serviceControl":  false,
+			"serviceControl":  true,
 			"scheduleControl": true,
 		},
 	}, &meta{Degraded: agentErr != nil, Notes: notes})

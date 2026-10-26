@@ -295,6 +295,7 @@ func runAgent(args []string) error {
 	// Agent 起不来会让整个面板失联，比部分功能不可用严重得多。
 	var fwWiring firewallWiring
 	var pwWiring powerWiring
+	var svWiring serviceWiring
 	if db, derr := database.Open(context.Background(), cfg.DatabasePath()); derr != nil {
 		log.Warn("防火墙与电源能力不可用：数据库打开失败", "error", derr)
 	} else {
@@ -314,6 +315,13 @@ func runAgent(args []string) error {
 			log.Info("电源与计划任务能力已启用")
 		} else {
 			log.Warn("电源与计划任务能力未启用", "reason", pwWiring.disabledWhy)
+		}
+
+		svWiring = wireServices(log, db)
+		if svWiring.enabled {
+			ag.SetServiceDeps(svWiring.deps)
+		} else {
+			log.Warn("启动项管理能力未启用", "reason", svWiring.disabledWhy)
 		}
 	}
 

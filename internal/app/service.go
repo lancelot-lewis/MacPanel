@@ -244,3 +244,50 @@ func (s *Service) ScheduleSync(ctx context.Context) (json.RawMessage, error) {
 	}
 	return out, nil
 }
+
+// ---- M4：启动项管理 ----
+
+// ServicesList 列出服务。
+func (s *Service) ServicesList(ctx context.Context, params any) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodServicesList, params, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ServiceDetail 读取单个服务的配置详情。
+func (s *Service) ServiceDetail(ctx context.Context, params any) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodServicesDetail, params, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ServiceRegister 登记受管服务。
+func (s *Service) ServiceRegister(ctx context.Context, params any) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodServicesRegister, params, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ServiceUnregister 取消登记。
+func (s *Service) ServiceUnregister(ctx context.Context, params any) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodServicesUnregister, params, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ServiceControl 启停受管服务。
+func (s *Service) ServiceControl(ctx context.Context, params any) (json.RawMessage, error) {
+	var out json.RawMessage
+	if err := s.client.Call(ctx, agent.MethodServicesControl, params, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}

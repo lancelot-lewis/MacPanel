@@ -76,6 +76,12 @@ func TestMethodsAreWhitelisted(t *testing.T) {
 		MethodScheduleExecutions: true,
 		MethodScheduleRunNow:     true,
 		MethodScheduleSync:       true,
+		// M4 启动项管理
+		MethodServicesList:       true,
+		MethodServicesDetail:     true,
+		MethodServicesRegister:   true,
+		MethodServicesUnregister: true,
+		MethodServicesControl:    true,
 	}
 	for _, m := range methods {
 		if !allowed[m] {

@@ -329,11 +329,11 @@ func TestOriginGuardAllowsSameOrigin(t *testing.T) {
 // TestNotImplementedReturns501 验证未实现接口返回 501 而非伪造成功。
 func TestNotImplementedReturns501(t *testing.T) {
 	env := newTestEnv(t, false)
-	// M2/M3 已实现防火墙与电源调度，这里只保留仍未实现的接口。
-	// 剩下的是 M4 启动项管理与 M6 OrbStack，实现后同样要移出本列表。
-	paths := []struct{ method, path string }{
-		{http.MethodGet, "/api/v1/services"},
-	}
+	// M2/M3/M4 均已实现，路由表里已没有 501 占位。
+	// 保留这个测试的意图：一旦将来新增里程碑时又加了占位路由，
+	// 这里会提醒「别忘了实现或明确标注未实现」。
+	paths := []struct{ method, path string }{}
+	_ = paths
 	for _, p := range paths {
 		rec := env.do(t, p.method, p.path, nil)
 		if rec.Code != http.StatusNotImplemented {
@@ -700,15 +700,15 @@ func TestMetaReportsFeatureFlags(t *testing.T) {
 	data := e.Data.(map[string]any)
 	features := data["features"].(map[string]any)
 
-	// M3 已实现电源与调度写入；M4 的服务控制仍未实现。
-	for _, k := range []string{"serviceControl"} {
-		if v, ok := features[k].(bool); !ok || v {
-			t.Errorf("M3 阶段 %s 仍必须为 false", k)
-		}
-	}
-	for _, k := range []string{"firewallRead", "firewallWrite", "powerControl", "scheduleControl"} {
-		if v, _ := features[k].(bool); !v {
-			t.Errorf("M3 阶段 %s 应为 true", k)
+	// M4 已完成，四项写能力全部为 true。
+	// 这里的断言价值在于：任何一项被误改成 false 都会被立刻发现
+	// （前端会据此隐藏入口，用户会以为功能消失了）。
+	for _, k := range []string{
+		"firewallRead", "firewallWrite",
+		"powerControl", "scheduleControl", "serviceControl",
+	} {
+		if v, ok := features[k].(bool); !ok || !v {
+			t.Errorf("M4 阶段 %s 应为 true", k)
 		}
 	}
 }

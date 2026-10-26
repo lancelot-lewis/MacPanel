@@ -37,6 +37,8 @@ type Agent struct {
 	fw *FirewallDeps
 	// power 是 M3 电源与调度能力依赖。为 nil 时相关方法返回「未实现」。
 	power *PowerDeps
+	// services 是 M4 启动项管理依赖。为 nil 时相关方法返回「未实现」。
+	services *ServiceDeps
 }
 
 // Options 构造参数。
@@ -96,6 +98,12 @@ func AllMethods() []string {
 		MethodScheduleExecutions,
 		MethodScheduleRunNow,
 		MethodScheduleSync,
+		// M4：启动项管理
+		MethodServicesList,
+		MethodServicesDetail,
+		MethodServicesRegister,
+		MethodServicesUnregister,
+		MethodServicesControl,
 	}
 }
 
@@ -119,6 +127,9 @@ func (a *Agent) RegisterAll(srv *ipc.Server) {
 
 	// M3 电源与计划任务。同样总是注册，依赖未就绪时返回「未实现」。
 	a.registerPower(srv)
+
+	// M4 启动项管理。
+	a.registerServices(srv)
 }
 
 // Methods 返回已实现的方法名。
