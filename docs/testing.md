@@ -263,38 +263,54 @@ make check
 | `TestFakeDataIsMarked` | **模拟数据必须带明确标识**，避免误认为真实状态 |
 | `TestInjectError` | 错误注入可用 |
 
-## 3. 覆盖率（M1 实测）
+## 3. 覆盖率（M3/M4/M6 完成后实测）
 
-M2 完成后的实测覆盖率（`go test ./... -cover`）：
+**368 个测试全部通过**（含 `-race`），`go vet` 与 `gofmt` 干净。
 
 ```text
-internal/platform/darwin/pfrules    88.2%   ← M2 规则生成与校验
-internal/platform/darwin/firewalld  43.2%   ← 未覆盖部分主要是 pfctl 真实调用（需 root）
-internal/firewallstore              81.4%   ← M2 规则持久化
-internal/platform/execx             87.0%
 internal/audit                      89.6%
-internal/platform/fake              88.9%
+internal/platform/darwin/pfrules    88.2%   ← M2 规则生成与校验
+internal/firewallstore              81.4%
+internal/schedule                   80.1%   ← M3 递归表达式与执行决策
 internal/config                     80.0%
+internal/platform/darwin/services   79.9%   ← M4 服务扫描与分类
 internal/auth                       79.9%
-internal/platform/darwin            78.7%
-internal/database                   70.7%
+internal/taskstore                  78.0%   ← M3 任务持久化
+internal/platform/darwin            77.7%
+internal/platform/orbstack          75.3%   ← M6 容器只读
+internal/servicestore               72.6%   ← M4 受管白名单
+internal/database                   71.2%
+internal/tasksched                  71.0%   ← M3 调度编排
+internal/platform/darwin/diag       71.0%   ← M6 TCP/路由/监听
+internal/platform/execx             69.6%
 internal/ipc                        68.1%
-internal/server                     67.8%
-internal/agent                      26.9%   ← 大量 handler 需装配依赖后才可达
+internal/platform/darwin/launchd    65.8%   ← M3 plist 生成与安装
+internal/server                     57.1%
+internal/platform/darwin/firewalld  43.2%   ← 真实 pfctl 调用需 root
+internal/agent                      12.8%   ← 见下方说明
 ──────────────────────────────────────────
-合计                                 56.8%
+合计                                 54.5%
 ```
 
-`firewalld` 的 43.2% 与 `agent` 的 26.9% 需要说明：
-- `firewalld` 未覆盖部分集中在 `pfexecutor_darwin.go`（真实 pfctl 调用、
-  dry-run 分支），这些路径只能在 root 环境下执行；
-- `agent` 的 M2 handler 需要完整装配 `FirewallDeps` 才可达，
-  当前测试只覆盖「依赖未就绪 → 返回未实现」的降级路径。
+**两处低覆盖不是遗漏，是环境限制**：
 
-这两处是 M2 实机验证阶段必须补齐的部分，已记入 `docs/m2-acceptance.md`。
+- `firewalld` 43.2%：未覆盖部分集中在 `pfexecutor_darwin.go`
+  （真实 `pfctl` 调用），只能在 root 环境执行。
+- `agent` 12.8%：M2~M6 的 handler 需要完整装配依赖才可达，
+  当前只覆盖「依赖未就绪 → 返回未实现」的降级路径。
+  真正的行为验证在 API 层（`internal/server`，用桩实现）
+  与实机验证（见 `docs/m3-m4-m6-acceptance.md` 第 2 节）。
 
 `internal/server` 与 `internal/auth` 的未覆盖部分主要是防御性分支
 （数据库错误路径、cookie 属性分支）与 CLI 主函数；安全关键路径已全部覆盖。
+
+### 3.1 为什么调度逻辑覆盖率最高
+
+`internal/schedule` 把「下次执行计算」与「是否该执行」做成纯函数，
+不依赖文件系统、数据库或系统命令。因此可以用注入时间点覆盖：
+DST 跳变、跨年、时钟回拨、错过执行窗口、循环重启间隔……
+
+这是刻意的分层结果：**最容易出错的部分也是最容易测试的部分**。
 
 ## 4. 实机验收清单（M1）
 
@@ -466,9 +482,18 @@ ifconfig en0 | grep inet6
 | 项 | 原因 | 计划 |
 | --- | --- | --- |
 | PKG 实际安装 | 需干净测试机，且需 root 安装 | M5 |
-| PF 写路径（规则应用/回滚） | 功能未实现 | M2 |
 | root 下 PF 状态读取 | 本机 sudo 不可用 | 部署后验证 |
-| 前端单元测试 | 优先保证后端安全路径 | M2 前补 Vitest |
-| 长时间稳定性（72h+） | 需持续运行环境 | M3 前 |
-| IPv6 前缀变化 / 网卡切换 / 睡眠唤醒 | 需真实网络事件 | M2 |
-| 同 LAN Windows 访问白名单端口 | 需 M2 规则功能 | M2 |
+| PF 写路径真实加载 | 同上 | `docs/m2-acceptance.md` |
+| 真实重启（`shutdown -r`） | 同上 | `docs/m3-m4-m6-acceptance.md` §3.1 |
+| launchd 真实调度与触发 | 同上 | 同上 |
+| 服务真实启停（`launchctl`） | 同上 | 同上 §3.2 |
+| 监听端口列表 | 本机受限环境 netstat 只返回 multipath 段 | 同上 §3.3 |
+| 前端单元测试 | 优先保证后端安全路径 | 未排期 |
+| 长时间稳定性（72h+） | 需持续运行环境 | M5 前 |
+| IPv6 前缀变化 / 网卡切换 / 睡眠唤醒 | 需真实网络事件 | M2 实机验证 |
+| 同 LAN Windows 访问白名单端口 | 需多机环境 | M2 实机验证 |
+
+> 上表中「真实重启」「launchd 调度」「服务启停」三项的风险最高：
+> 它们是 M3/M4 的核心价值，但从未在真实系统上执行过。
+> 逻辑层（plist 生成、状态机、拦截规则）有测试覆盖，
+> 但「launchd 是否真的在 04:30 启动了那个进程」只能实机确认。

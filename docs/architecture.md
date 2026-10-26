@@ -278,7 +278,104 @@ idle ──────────► pending ───────────
 为什么需要参数级：`pfctl` 既能 `-a <anchor> -f <file>`（安全），
 也能 `-d`（全局关闭防火墙）。只校验路径等于没限制。
 
-## 8. 已知限制（M1/M2）
+## 7.2 M3：调度与电源的分层
+
+```text
+internal/schedule      纯逻辑：递归表达式、下次执行、执行决策、错过判定
+internal/taskstore     SQLite 持久化（含待执行重启）
+internal/platform/darwin/launchd   plist 生成、安装、卸载
+internal/tasksched     编排：同步、状态机、崩溃恢复、审计
+cmd/.../task-run       launchd 触发的执行入口（独立子进程）
+```
+
+**为什么要拆这么细**：调度计算是最容易出错的地方（时区、DST、
+错过执行、时钟回拨），而它恰好可以完全脱离系统测试。
+把它单独成包后，`schedule` 有 80% 覆盖率且全部是确定性测试。
+
+### 为什么 task-run 是独立子进程
+
+launchd 按 `StartCalendarInterval` 启动 `homelab-manager task-run --task <id>`。
+不让常驻 Agent 自己计时，原因有三：
+
+1. **Agent 停掉时任务仍能执行**——这是 PLAN 5.3 的硬要求；
+2. 每次执行都是全新进程，不会因 Agent 长期运行而累积状态；
+3. 退出码直接反映结果，launchd 的日志可读性更好。
+
+### 待执行重启为什么落盘
+
+延迟重启的倒计时必须在 Agent 崩溃或系统重启后恢复。放内存里会让
+「30 分钟后重启」在 Agent 重启后静默消失——用户以为已排定，实际什么都没有。
+
+恢复时先判断「系统是否在排定之后重启过」：
+
+- 已重启过 → 意图已达成，清除记录（否则会**重启后再重启**）
+- 未到期的 → 用**绝对时刻**重新定时，不重置倒计时
+- 已过期的 → 立即执行（这是用户明确的一次性意图，没有「错过就跳过」的余地）
+
+### 时钟必须单一来源
+
+定时器用调度器自己的时钟算延迟，不是 `time.Until`（真实时钟）。
+混用在测试中暴露过：目标时刻来自注入时钟而延迟取真实时钟，
+会把「10 分钟后重启」变成「立即重启」。
+
+生产环境两者一致，但这类「只有测试才暴露」的分歧说明混用本身是错的。
+
+## 7.3 M4：启动项的三层操作边界
+
+```text
+model.ManagedService.Validate      数据层：标签前缀、路径白名单、文件名一致
+services.ValidateLabelForControl   执行层：拒绝系统关键与自身
+services.Controller.Execute        命令层：只接受登记过的 plist 路径
+```
+
+三层独立实现、面向不同层。任何一层被绕过，另外两层仍有兜底。
+这不是冗余——「停掉系统关键服务」的代价是机器可能失联或崩溃，
+值得用三道检查来防。
+
+### 数据来源的实测结论
+
+`launchctl list` 在 macOS 27 上对普通用户返回**空且退出码 1**，
+不能作为数据源。改用 `launchctl print system`，解析其 services 段。
+
+段内每行形如 `<PID> <标志> <label>`，只依赖首尾两列
+（中间的标志列各版本会变，如 `-`、`(pe)`、`0`）。
+
+### 为什么系统服务与本应用永久只读
+
+- 停止 `com.apple.*` 的后果不可预测：可能是网络栈、文件系统守护进程；
+- 停止本应用自身 → 面板立刻失去数据来源，而用户很可能正通过它访问这台机器。
+
+用户要停它们应该走 CLI 或 launchctl，不在「可能因此失联」的界面里操作。
+
+## 7.4 M6：诊断的结论分类
+
+TCP 探测不返回「成功/失败」，而是四类结论：
+
+| outcome | 含义 | 排查方向 |
+| --- | --- | --- |
+| `connected` | 握手成功 | — |
+| `refused` | 端口没有服务在监听 | 服务没起来 |
+| `timeout` | 无响应 | 防火墙丢弃（PF 规则写错） |
+| `unreachable` | 无路由 | 地址/接口问题 |
+
+把三者合并成「失败」会让用户无法判断问题在哪一层——而这三层的
+修复动作完全不同。
+
+### 探测目标默认限本机
+
+诊断目标是「我配的服务起来了吗」，不是网络扫描。开放任意目标会让
+面板变成探测工具，需要 `HLM_ALLOW_NONLOCAL_PROBE=1` 显式开启。
+
+### 容器能力为什么只读
+
+Docker Socket 的权限等价于 root：通过它可以创建特权容器、挂载宿主机
+任意目录。首版只发 `GET /containers/json`，且不提供 `inspect`
+（会返回环境变量，常含凭据）。
+
+容器的启停需要在后续版本中单独设计授权与审计，不能顺手加上——
+那会让「面板的权限」悄悄超过「设计时承诺的权限」。
+
+## 8. 已知限制（M1–M4/M6）
 
 - PF 状态需要 root：非 root 运行 Agent 时只能报告「不可读」。
 - `/etc/pf.conf` 与 anchor 文件通常 0600 root:wheel，非 root 无法读取内容，
@@ -293,13 +390,31 @@ idle ──────────► pending ───────────
   dry-run 模式覆盖了除真实加载外的全部链路。
 - **回滚 = 清空 anchor**，不恢复历史规则内容（只存哈希，不复制规则文件）。
 - **规则版本历史接口为占位**：`GET /firewall/revisions` 返回空列表。
+- **真实重启与 launchd 调度未实机验证**：`shutdown -r`、`launchctl bootstrap`
+  的真实调用需 root，开发机不可用；dry-run 覆盖了除真实执行外的全部链路。
+- **服务启停未实机验证**：同上。非 root 时 Controller 不装配，
+  界面会显式说明「服务列表可查看但无法启停」。
+- **监听端口列表依赖 netstat 输出**：某些受限环境下 `netstat -an`
+  只返回 multipath 段。此时明确报告「不可用」而不是「0 个监听」。
+- **单次任务用持久化倒计时而不是 launchd**：`StartCalendarInterval`
+  没有年份字段，无法表达「仅在某个日期执行一次」。
+- **容器能力只读**：Docker Socket 权限等价于 root，启停需单独的授权设计。
 
 ## 9. 后续里程碑的架构预留
 
-| 里程碑 | 需要新增 | 已有预留 |
+| 里程碑 | 状态 | 关键实现 |
 | --- | --- | --- |
-| M2 PF 核心 | `platform/darwin/pf` 写实现、规则生成器、事务与回滚状态机 | `firewall_rules` / `firewall_revisions` 表、`execx` 白名单、Agent 方法注册表 |
-| M3 定时任务 | launchd 或系统调度封装、时区计算 | `scheduled_tasks` / `task_executions` 表 |
-| M4 启动项 | launchd 域枚举（只读）、受管白名单 | `managed_services.allow_control` |
-| M5 安装 | PKG/DMG 签名与公证 | `packaging/macos/*` 脚手架、launchd 模板 |
-| M6 OrbStack | Docker socket 客户端（独立授权建模） | 无（刻意不提前抽象） |
+| M2 PF 核心 | 代码完成，实机未验证 | `pfrules` / `firewalld` / `firewallstore` |
+| M3 定时任务 | 代码完成，真实重启未验证 | `schedule` / `taskstore` / `tasksched` / `launchd` |
+| M4 启动项 | 代码完成，真实启停未验证 | `services` / `servicestore` |
+| M5 安装 | **未做** | `packaging/macos/*` 脚手架已有，未做干净系统验证 |
+| M6 诊断与 OrbStack | 代码完成，OrbStack 只读已实测 | `diag` / `orbstack` |
+
+后续可扩展项（需要新增设计，不能顺手加）：
+
+| 能力 | 需要 | 为什么不能直接加 |
+| --- | --- | --- |
+| 容器启停 | 单独的授权模型 + 审计 | Docker Socket 权限等价 root |
+| PF 命中统计 | 解析 `pfctl -sr -vv` | 需要新的参数守卫与输出解析 |
+| Tailscale/EasyTier 状态 | 读取各自状态文件或 CLI | 需评估是否为稳定接口 |
+| 多用户 RBAC | 用户表 + 会话隔离 | ADR-001 明确首版不做 |

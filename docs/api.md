@@ -547,16 +547,284 @@ pass quick on lo0 all
 返回 5 个内置模板（Caddy / sish / Tailscale / EasyTier / SSH 限局域网）。
 每个模板带 `note` 字段，提示用户必须核实的点。
 
-## 未实现接口（返回 501）
+## M3：电源与计划任务接口
 
-以下接口在路由中显式注册，统一返回 `not_implemented`：
+### GET /api/v1/power/status
 
-| 方法 | 路径 | 计划里程碑 |
+```json
+{
+  "ok": true,
+  "data": {
+    "pending": {
+      "scheduledAt": "2026-10-26T12:32:51Z",
+      "reason": "系统更新后重启",
+      "requestedBy": "local:127.0.0.1",
+      "createdAt": "2026-10-26T12:22:51Z",
+      "taskId": 0
+    },
+    "canReboot": true,
+    "rebootUnavailableReason": "",
+    "lastRebootAt": "2026-10-24T04:20:31Z",
+    "uptimeSeconds": 172846,
+    "timezone": "Asia/Shanghai",
+    "scheduleDaemonInstalled": true
+  }
+}
+```
+
+`pending` 缺失表示没有待执行的重启。`canReboot` 为 false 时
+`rebootUnavailableReason` 说明原因（如「当前进程不是 root」）。
+
+### POST /api/v1/power/reboot
+
+**高风险**。必须带 `confirmsRisk: true`（或请求头 `X-HLM-Confirm-Risk: 1`）。
+
+请求：
+
+```json
+{ "delaySeconds": 600, "reason": "系统更新后重启", "confirmsRisk": true }
+```
+
+| 字段 | 约束 |
+| --- | --- |
+| `delaySeconds` | 0-3600（0 表示尽快）。上限 60 分钟与命令层守卫一致 |
+| `reason` | ≤200 字符 |
+
+错误：
+
+| 情况 | 状态 | code |
 | --- | --- | --- |
-| GET/POST | `/api/v1/schedules` | M3 |
-| POST | `/api/v1/schedules` | M3 |
-| POST | `/api/v1/power/reboot` | M3 |
-| GET | `/api/v1/services` | M4 |
+| 缺少风险确认 | 400 | `invalid_argument` |
+| 已有待执行的重启 | 409 | `conflict` |
+| 不具备重启能力（非 root） | 503 | `unavailable` |
+
+### POST /api/v1/power/cancel
+
+取消待执行的重启。幂等：没有待执行重启时也返回成功。
+
+### 计划任务
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/v1/schedules` | 列表 |
+| POST | `/api/v1/schedules` | 创建 |
+| PUT | `/api/v1/schedules/{id}` | 更新（路径 ID 是唯一权威，忽略 body 里的 id） |
+| DELETE | `/api/v1/schedules/{id}` | 删除（同时移除 launchd 配置） |
+| GET | `/api/v1/schedules/executions?taskId=&limit=` | 执行记录 |
+| POST | `/api/v1/schedules/{id}/run` | 立即执行（需风险确认） |
+| POST | `/api/v1/schedules/sync` | 把任务同步到 launchd |
+
+创建请求：
+
+```json
+{
+  "name": "每日凌晨重启",
+  "kind": "reboot",
+  "timezone": "Asia/Shanghai",
+  "recurrence": { "kind": "daily", "timeOfDay": "04:30" },
+  "enabled": true,
+  "catchUp": "never",
+  "catchUpWindowSeconds": 0,
+  "minIntervalSeconds": 1800
+}
+```
+
+`recurrence.kind` 取值与必填字段：
+
+| kind | 必填 | 说明 |
+| --- | --- | --- |
+| `daily` | `timeOfDay`（"HH:MM"） | 每天固定时刻 |
+| `weekly` | `timeOfDay` + `weekdays`（0=周日） | 每周指定几天 |
+| `interval_hours` | `intervalHours`（1-8760） | 以上次执行时间为基准 |
+| `once` | `onceAt`（RFC3339，未来时刻） | 单次；走 Agent 持久化倒计时而不是 launchd |
+
+约束（不通过返回 400）：
+
+- `minIntervalSeconds` **不得低于 1800**（30 分钟）——防循环重启的硬性下限
+- `catchUp` 为 `within_window` 时必须设 `catchUpWindowSeconds`，且 ≤7 天
+- `timezone` 必须是有效的 IANA 名
+
+任务对象的只读字段（`createdAt` / `updatedAt` / `lastRunAt` / `failCount`
+/ `launcherLabel`）由服务端维护，**客户端回传会导致解析失败**（time 字段空串）。
+提交时只发上面列出的可编辑字段。
+
+## M4：启动项接口
+
+### GET /api/v1/services?includeGui=1&guiUid=
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "label": "ddns-go",
+        "domain": "system",
+        "kind": "third_party",
+        "pid": 329,
+        "running": true,
+        "plistPath": "/Library/LaunchDaemons/ddns-go.plist",
+        "managed": true,
+        "controllable": false,
+        "blockedReason": "已登记但未授权启停（可在此授权）"
+      }
+    ],
+    "summary": {
+      "total": 902, "systemCritical": 874, "self": 0,
+      "thirdParty": 28, "managed": 1, "running": 426
+    },
+    "warnings": []
+  }
+}
+```
+
+`kind` 三类：`system_critical`（永久只读）、`self`（本应用，永久只读）、
+`third_party`（默认只读，需登记授权）。
+
+`warnings` 非空表示部分域读取失败（能读到的部分仍会返回）。
+
+### GET /api/v1/services/detail?label=&domain=
+
+返回 plist 路径、启动命令、RunAtLoad/KeepAlive、日志路径
+（未声明时给 `log show` 查询命令）。
+
+### POST /api/v1/services/register
+
+```json
+{
+  "label": "ddns-go",
+  "domain": "system",
+  "plistPath": "/Library/LaunchDaemons/ddns-go.plist",
+  "displayName": "DDNS 客户端",
+  "allowControl": false
+}
+```
+
+校验（不通过返回 400）：
+
+- `label` 不得是 `com.apple.*` 或 `com.homelab.manager.*`
+- `domain` 只接受 `system`
+- `plistPath` 必须位于 `/Library/LaunchDaemons/` 或 `/System/Library/LaunchDaemons/`，
+  不得含 `..`，必须是 `.plist`，且文件名必须等于 `<label>.plist`
+- 同一 label 重复登记是幂等覆盖
+
+`allowControl=false` 表示「只登记观察」，列表中显示 `managed=true`
+但 `controllable=false`。
+
+### DELETE /api/v1/services/register?label=
+
+取消登记。服务本身不受影响。
+
+### POST /api/v1/services/control
+
+**高风险**。必须带 `confirmsRisk: true`。
+
+```json
+{ "label": "ddns-go", "action": "restart", "confirmsRisk": true }
+```
+
+`action`：`start` / `stop` / `restart`。
+
+三层拦截（顺序即在代码中的检查顺序）：
+
+1. 标签形态：`com.apple.*` 与本应用自身一律拒绝（403）
+2. 受管白名单：未登记或未授权 → 403，且给出具体原因
+3. 路径来源：只用登记时记录的 plist 路径，不接受请求传入
+
+`start` / `stop` 幂等：已加载时 `start` 是空操作，未加载时 `stop` 是空操作。
+
+## M6：网络诊断与容器接口
+
+### GET /api/v1/diagnostics
+
+```json
+{
+  "ok": true,
+  "data": {
+    "ipv6Routes": [
+      { "destination": "default", "gateway": "fe80::1%en0",
+        "flags": "UGcg", "interface": "en0" }
+    ],
+    "ipv6Listeners": [
+      { "protocol": "tcp46", "address": "*", "port": 443 }
+    ],
+    "missing": [
+      { "metric": "ipv6Listeners",
+        "reason": "netstat 未返回标准连接表（可能受权限或运行环境限制）" }
+    ],
+    "collectedAt": "2026-10-26T04:22:51Z"
+  }
+}
+```
+
+**`missing` 非空表示对应项不可用，而不是「值为 0」**。
+例如 `ipv6Listeners` 缺失时不能理解为「没有监听端口」。
+
+### POST /api/v1/diagnostics/tcp
+
+```json
+{ "host": "::1", "port": 443, "timeoutMs": 3000 }
+```
+
+返回：
+
+```json
+{
+  "target": "[::1]:443", "host": "::1", "port": 443,
+  "reachable": false,
+  "outcome": "refused",
+  "detail": "连接被拒绝：目标端口没有服务在监听",
+  "probedAt": "2026-10-26T04:22:51Z"
+}
+```
+
+`outcome` 的语义（**不要合并成一个「失败」**）：
+
+| outcome | 含义 | 排查方向 |
+| --- | --- | --- |
+| `connected` | 握手成功 | — |
+| `refused` | 端口没有服务在监听 | 服务是否启动、监听地址是否正确 |
+| `timeout` | 无响应 | 防火墙（PF 规则）是否丢弃了包、主机是否在线 |
+| `unreachable` | 无路由 | 地址拼写、接口状态、路由表 |
+
+目标默认限本机（含本机已配置的接口地址）。探测外部地址需
+`HLM_ALLOW_NONLOCAL_PROBE=1`。
+
+### GET /api/v1/orbstack/containers
+
+```json
+{
+  "ok": true,
+  "data": {
+    "status": {
+      "available": true,
+      "socketPath": "/var/run/docker.sock",
+      "version": "API 1.56"
+    },
+    "items": [
+      { "id": "abc123def456", "name": "caddy", "image": "caddy:2-alpine",
+        "state": "running", "status": "Up 2 hours (healthy)",
+        "ports": ["tcp/443 → *:443", "tcp/80（未映射）"] }
+    ]
+  }
+}
+```
+
+`status.available=false` 时 `items` 为空数组，`status.reason` 说明原因
+（未安装 OrbStack / Socket 不可访问）。**这是正常状态，不是错误。**
+
+本接口**只读**，没有任何写操作。原因见 `docs/security.md`：
+Docker Socket 权限等价于 root。
+
+## 未实现接口
+
+路由表中已没有 501 占位。以下能力尚未实现，接口不存在（而非返回 501）：
+
+| 能力 | 说明 |
+| --- | --- |
+| 容器启停 | 需单独的授权与审计设计 |
+| PF 规则命中统计 | 需要解析 `pfctl -sr -vv` 的字节/包计数 |
+| Tailscale / EasyTier 状态 | 需读取各自的本地状态文件或 CLI |
 
 调用这些接口会写入审计（`result=denied`，`reason=not_implemented`），
 便于确认「有人试图使用未实现功能」。

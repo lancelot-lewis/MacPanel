@@ -85,16 +85,64 @@
 
 ## 4. Agent 权限最小化
 
-M1 阶段 Agent 的权限范围为：
+### 4.1 白名单命令与参数级限制
 
-- 读取 sysctl 参数、vm_stat 输出、statfs 容量；
-- 枚举网络接口（`net.Interfaces`）；
-- 执行 `/sbin/pfctl -s info`、`-s Anchors`（只读查询）；
-- 读取 `/etc/pf.conf` 与 anchor 文件（权限允许时）。
+Agent 可执行的系统命令只有 8 个，每个都有明确用途：
 
-**明确不做**：`pfctl -d`、`pfctl -f`、`launchctl` 任意操作、`reboot`、
-任意文件写入、任意命令执行。M1 的 `FirewallStatus.Writable` 恒为 `false`，
-前端据此禁用一切写操作入口。
+| 命令 | 用途 | 参数级守卫 |
+| --- | --- | --- |
+| `/usr/sbin/sysctl` | 读取内核与硬件参数 | 无（只读命令） |
+| `/usr/bin/vm_stat` | 虚拟内存统计 | 无 |
+| `/usr/bin/sw_vers` | macOS 版本 | 无 |
+| `/usr/sbin/networksetup` | 网络硬件端口列表 | 无 |
+| `/sbin/pfctl` | PF 查询与 anchor 加载 | `pfctlGuard` |
+| `/bin/launchctl` | 服务查询与受管启停 | `launchctlGuard` |
+| `/sbin/shutdown` | 受控重启 | `shutdownGuard` |
+| `/usr/bin/plutil` | plist 语法校验 | `plutilGuard` |
+| `/usr/sbin/netstat` | 路由与连接查询 | `netstatGuard` |
+
+**只有路径白名单是不够的**——`pfctl` 既能 `-a <anchor> -f <file>`（安全），
+也能 `-d`（全局关闭防火墙）。因此危险命令都有参数级守卫。
+
+### 4.2 各守卫的明确禁止项
+
+`pfctlGuard`：禁 `-d`（关闭 PF）、`-e`、`-F`（清空规则表）、`-k`（终止全部状态）、
+`-x`、`-z`、`-m`、`-N`、`-O`。只允许 `-s info/Anchors`、`-n -f`、
+`-a <anchor> -f`、`-a <anchor> -sr`。
+
+`launchctlGuard`：**永久关闭** `submit`（以 root 执行任意命令）、
+`load`/`unload`（旧式接口）、`reboot`/`shutdown`/`halt`、
+`setenv`/`unsetenv`（影响所有服务）、`config`、`attach`。
+改变状态的子命令（`bootstrap`/`bootout`/`kickstart`/`enable`/`disable`）
+**只允许 system 域**；只读的 `print` 可查任意域（诊断需要）。
+
+`shutdownGuard`：只允许 `-r now` 与 `-r +N`（1-60 分钟）。
+**关机（-h）与断电（-p）永久缺席**——若机器不在物理可及范围，
+误关机等于彻底失联，而本应用不提供服务器的远程开机能力。
+
+`netstatGuard`：只允许 `-rn`/`-an` 配合 `-f inet/inet6`，禁 `-d`（删除路由）。
+
+`plutilGuard`：只允许 `-lint`（语法校验），不允许 `-replace`/`-insert` 改写文件。
+
+### 4.3 明确不做
+
+`pfctl -d`、`pfctl -f /etc/pf.conf`（全量刷新主规则集）、任意文件写入、
+任意命令执行、关机/断电、容器写操作、加载任意 plist。
+
+### 4.4 服务启停的三层拦截
+
+见 `docs/architecture.md` 7.3。核心是「不以路径信任调用方」：
+`bootstrap` 只接受**登记时记录的** plist 路径，不接受请求传入——
+否则等于开放「以 root 加载任意 plist」。
+
+### 4.5 为什么容器能力只读
+
+Docker Socket 的权限等价于 root：能创建特权容器、挂载宿主机任意目录。
+本应用只发 `GET /containers/json`，且不提供 `inspect`（会返回环境变量，
+常含数据库密码、API Key）。
+
+容器的启停需要在后续版本单独设计授权与审计，不能顺手加上——
+那会让「面板的实际权限」悄悄超过「设计时承诺的权限」。
 
 ## 5. 拒绝服务防护
 
@@ -144,22 +192,64 @@ Content-Security-Policy: default-src 'self'; script-src 'self';
 `script-src` 严格只允许同源打包产物，不含 `'unsafe-inline'` 或 `'unsafe-eval'`。
 API 响应一律 `Cache-Control: no-store`。
 
-## 8. 尚未覆盖的风险（需在后续里程碑解决）
+## 8. 尚未覆盖的风险
 
-1. **PF 写入的事务性**（M2）：规则应用的原子性、部分加载、回滚状态持久化。
-   当前完全未实现写路径，因此不存在「应用了但无法回滚」的状态。
-2. **远程模式的 TLS 终止**：当前假设由反向代理提供 HTTPS。若用户直接暴露
+1. **远程模式的 TLS 终止**：当前假设由反向代理提供 HTTPS。若用户直接暴露
    HTTP 端口，凭据会明文传输。M5 需提供内置 TLS 或强制校验机制。
-3. **密钥轮换**：IPC 令牌目前需手动重新生成（`token -force`），
+2. **密钥轮换**：IPC 令牌目前需手动重新生成（`token -force`），
    会导致 Server 与 Agent 短暂不一致，需要协同重启。
-4. **审计日志防篡改**：当前为普通表，root 或被授权进程可修改。
+3. **审计日志防篡改**：当前为普通表，root 或被授权进程可修改。
    未来可考虑追加哈希链或外部日志转发。
-5. **签名与公证**（M5）：当前 PKG 未签名，Gatekeeper 会拦截。
-6. **多用户**：明确不支持 RBAC，仅区分「已授权/未授权」。
+4. **签名与公证**（M5）：当前 PKG 未签名，Gatekeeper 会拦截。
+5. **多用户**：明确不支持 RBAC，仅区分「已授权/未授权」。
+6. **服务启停的「关键通道」识别**：本应用不做「这个服务是否是远程通道」
+   的智能判断，而是**统一要求风险确认**。误判的代价是失联，
+   而统一确认的代价只是多点一次。
+7. **TCP 探测可被用作内网探测**：默认限本机地址，但若开启
+   `HLM_ALLOW_NONLOCAL_PROBE`，面板就具备端口扫描能力。
+   该开关必须在理解这个后果的前提下开启。
+8. **OrbStack 容器信息暴露**：容器名与镜像名可能透露架构信息。
+   接口只对已认证用户开放，但若账号泄露，这些信息会一并暴露。
 
 ## 9. 安全测试覆盖
 
 自动化测试中与安全直接相关的用例：
+
+### 命令层
+
+| 测试 | 验证 |
+| --- | --- |
+| `TestPFctlGuardRejectsDangerousFlags` | `-d/-e/-F/-k/-x` 全拒绝，含混在合法参数中的情况 |
+| `TestLaunchctlGuardRejectsDangerousSubcommands` | `submit`/`load`/`unload`/`reboot`/`shutdown`/`halt`/`setenv` 全拒绝 |
+| `TestLaunchctlGuardRejectsNonSystemDomainForWrites` | bootstrap/bootout/kickstart/enable/disable 只允许 system 域 |
+| `TestShutdownGuardOnlyAllowsReboot` | `-h`/`-p`/`-s` 全拒绝 |
+| `TestRunRejectsGuardViolation` | 守卫确实被 `Run` 调用（不只是函数存在） |
+
+### 服务操作
+
+| 测试 | 验证 |
+| --- | --- |
+| `TestControllerRejectsCriticalServices` | 系统关键与本应用自身在控制器层也被拒绝 |
+| `TestUpsertRejectsInvalid` | 非法 plist 路径（`/tmp/`、含 `..`、文件名不一致）全拒绝 |
+| `TestValidateLabelForControlRejectsCritical` | 形态校验独立生效 |
+
+### 调度与电源
+
+| 测试 | 验证 |
+| --- | --- |
+| `TestScheduleRebootRejectsWithoutCapability` | 非 root 明确拒绝而不是「已排定但不生效」 |
+| `TestDecideEnforcesMinInterval` | 最短间隔阻止循环重启 |
+| `TestRebootRequiresRiskConfirmation` | 缺确认 400 且不触达 Agent |
+| `TestPowerWriteRequiresAuth` | 远程模式未登录 → 401 |
+
+### 诊断
+
+| 测试 | 验证 |
+| --- | --- |
+| `TestValidateProbeTarget` | 限制模式拒绝外部地址 |
+| `TestNoWriteOperations` | OrbStack 客户端只暴露 2 个只读方法（编译期断言） |
+
+其余用例：
 
 | 测试 | 验证内容 |
 | --- | --- |

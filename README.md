@@ -3,13 +3,24 @@
 macOS HomeLab 管理面板。单个 Go 二进制 + 内嵌 Vue 3 前端，原生运行、不依赖 Docker，
 用于统一管理系统状态、IPv6 防火墙、定时重启、启动项与网络诊断。
 
-> **当前版本：M2（防火墙规则可写，实机加载待验证）**
-> 已实现：系统概览、网络接口、操作审计、本地/远程认证、
-> **IPv6 防火墙规则编辑 / 预览 / 应用 / 60 秒超时回滚**。
-> **未实现**：定时重启、启动项启停、OrbStack。未实现接口统一返回 `501`。
+> **当前版本：M0–M4 + M6 功能完成；M5（安装验证）与实机验证待做**
 >
-> ⚠️ M2 的 PF 真实加载**尚未在实机验证**（开发机无 root）。
-> 详见 [`docs/m2-acceptance.md`](docs/m2-acceptance.md)，其中列出了必须实测的项目。
+> **已实现**
+> - 系统概览、网络接口、操作审计、本地/远程认证
+> - IPv6 防火墙：规则编辑 / 预览 / 应用 / 60 秒超时回滚 / 崩溃恢复
+> - 电源与计划任务：受控重启、每日/每周/固定间隔/单次、最短间隔保护、
+>   失败熔断、错过执行策略、launchd 调度、崩溃恢复
+> - 启动项：launchd 服务扫描与分类、受管白名单、受控启停
+> - 网络诊断：TCP 连通性检测（区分拒绝/超时/不可达）、IPv6 路由与监听端口
+> - OrbStack：容器只读列表（无任何写操作）
+>
+> **未实现**：容器启停、PF 规则命中统计、Tailscale/EasyTier 状态、多用户 RBAC。
+>
+> ⚠️ **以下行为未在本机实机验证**（开发机无 root）：
+> - PF 真实加载（见 [`docs/m2-acceptance.md`](docs/m2-acceptance.md)）
+> - 真实重启、launchd 真实调度与触发（见 [`docs/m3-m4-m6-acceptance.md`](docs/m3-m4-m6-acceptance.md)）
+>
+> 首次部署前请按这两份文档的「未验证」清单逐项确认，并保留可用的本地终端。
 
 ## 技术路线
 
@@ -214,6 +225,7 @@ make dmg             # 构建 DMG（不挂载）
 | [docs/testing.md](docs/testing.md) | 测试矩阵与实机验收清单 |
 | [docs/m1-acceptance.md](docs/m1-acceptance.md) | M1 验收记录 |
 | [docs/m2-acceptance.md](docs/m2-acceptance.md) | M2 验收记录（含必须实机验证的清单） |
+| [docs/m3-m4-m6-acceptance.md](docs/m3-m4-m6-acceptance.md) | M3/M4/M6 验收记录（已验证 / 未验证清单） |
 
 ## 许可
 
