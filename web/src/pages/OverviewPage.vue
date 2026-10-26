@@ -18,6 +18,7 @@ const overview = useResource(() => api.overview(), { intervalMs: 5000 })
 
 const ov = computed(() => overview.data.value)
 const memory = computed(() => ov.value?.memory)
+
 const memUsedRatio = computed(() => {
   const m = memory.value
   if (!m || m.state !== 'ok' || m.usedBytes == null || m.totalBytes <= 0) return null
@@ -33,15 +34,32 @@ const missingMap = computed(() => {
 })
 
 const isLoadingFirst = computed(() => overview.loading.value && !overview.data.value)
+
+// 内存进度条颜色随占用升高而警示
+const memStatus = computed(() => {
+  const r = memUsedRatio.value
+  if (r == null) return undefined
+  if (r > 0.9) return 'error' as const
+  if (r > 0.75) return 'warning' as const
+  return 'success' as const
+})
+
+function diskStatus(ratio: number) {
+  if (ratio > 0.9) return 'error' as const
+  if (ratio > 0.8) return 'warning' as const
+  return 'default' as const
+}
 </script>
 
 <template>
-  <div class="mx-auto flex max-w-6xl flex-col gap-4">
+  <div class="page-stack page-narrow">
     <!-- 错误提示：保留旧数据但明确标注非最新 -->
     <Callout v-if="overview.error.value" tone="danger" badge="错误" title="无法获取系统状态">
       {{ overview.error.value }}
-      <span v-if="overview.lastUpdated.value" class="block mt-1 opacity-80">
-        下方显示的是 {{ formatTime(new Date(overview.lastUpdated.value).toISOString()) }} 的数据，可能已过期。
+      <span v-if="overview.lastUpdated.value" class="mt-1 block opacity-80">
+        下方显示的是
+        {{ formatTime(new Date(overview.lastUpdated.value).toISOString()) }}
+        的数据，可能已过期。
       </span>
     </Callout>
 
@@ -52,15 +70,16 @@ const isLoadingFirst = computed(() => overview.loading.value && !overview.data.v
     </Callout>
 
     <!-- 首次加载骨架 -->
-    <div v-if="isLoadingFirst" class="card p-6 text-sm text-[var(--color-text-secondary)]">
-      正在读取系统状态…
-    </div>
+    <NCard v-if="isLoadingFirst" size="small">
+      <NSkeleton text :repeat="2" />
+      <NSkeleton text style="width: 60%" />
+    </NCard>
 
     <template v-if="ov">
       <!-- 主机概要 -->
       <PanelCard title="主机" :subtitle="`采集于 ${formatTime(ov.collectedAt)}`">
         <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-          <StatBlock label="主机名" :value="ov.hostname || null" />
+          <StatBlock label="主机名" :value="ov.hostname || null" :mono="false" />
           <StatBlock
             label="macOS 版本"
             :value="ov.os.productVersion ? `${ov.os.productVersion} (${ov.os.build})` : null"
@@ -79,40 +98,50 @@ const isLoadingFirst = computed(() => overview.loading.value && !overview.data.v
         </div>
       </PanelCard>
 
-      <!-- CPU 与内存 -->
       <div class="grid gap-4 lg:grid-cols-2">
+        <!-- 处理器 -->
         <PanelCard title="处理器">
           <div class="grid grid-cols-2 gap-4">
             <StatBlock
               label="型号"
               :value="ov.cpu.model || null"
+              :mono="false"
               :unavailable="!ov.cpu.model"
               :unavailable-reason="missingMap.get('cpu.model')"
             />
             <StatBlock
               label="核心数"
-              :value="ov.cpu.logicalCores > 0 ? `${ov.cpu.logicalCores} 逻辑 / ${ov.cpu.physicalCores} 物理` : null"
+              :value="
+                ov.cpu.logicalCores > 0
+                  ? `${ov.cpu.logicalCores} 逻辑 / ${ov.cpu.physicalCores} 物理`
+                  : null
+              "
               :unavailable="ov.cpu.logicalCores <= 0"
             />
           </div>
 
-          <div class="mt-4 border-t border-[var(--color-border-subtle)] pt-3">
-            <div class="mb-2 text-xs text-[var(--color-text-secondary)]">系统负载（1 / 5 / 15 分钟）</div>
-            <div v-if="ov.cpu.loadAverage" class="flex items-baseline gap-4">
-              <span class="mono text-lg font-semibold">{{
-                formatNumber(ov.cpu.loadAverage.one)
-              }}</span>
-              <span class="mono text-[13px] opacity-70">{{
-                formatNumber(ov.cpu.loadAverage.five)
-              }}</span>
-              <span class="mono text-[13px] opacity-70">{{
-                formatNumber(ov.cpu.loadAverage.fifteen)
-              }}</span>
-            </div>
-            <div v-else class="text-[13px] text-[var(--color-text-secondary)]">不可用</div>
+          <NDivider class="!my-3" />
+
+          <div class="mb-1.5 text-xs" :style="{ color: 'var(--color-text-secondary)' }">
+            系统负载（1 / 5 / 15 分钟）
+          </div>
+          <div v-if="ov.cpu.loadAverage" class="flex items-baseline gap-4">
+            <span class="mono text-[19px] font-semibold">{{
+              formatNumber(ov.cpu.loadAverage.one)
+            }}</span>
+            <span class="mono text-[13px]" :style="{ color: 'var(--color-text-secondary)' }">{{
+              formatNumber(ov.cpu.loadAverage.five)
+            }}</span>
+            <span class="mono text-[13px]" :style="{ color: 'var(--color-text-tertiary)' }">{{
+              formatNumber(ov.cpu.loadAverage.fifteen)
+            }}</span>
+          </div>
+          <div v-else class="text-[13px]" :style="{ color: 'var(--color-text-secondary)' }">
+            不可用
           </div>
         </PanelCard>
 
+        <!-- 内存 -->
         <PanelCard title="内存">
           <template v-if="memory && memory.state === 'ok'">
             <div class="grid grid-cols-2 gap-4">
@@ -123,36 +152,32 @@ const isLoadingFirst = computed(() => overview.loading.value && !overview.data.v
               />
               <StatBlock label="总计" :value="formatBytes(memory.totalBytes)" />
             </div>
-            <div
+
+            <NProgress
               v-if="memUsedRatio != null"
-              class="mt-4 h-2 overflow-hidden rounded-full"
-              style="background: color-mix(in oklab, var(--color-text-secondary) 18%, transparent)"
-              role="progressbar"
-              :aria-valuenow="Math.round(memUsedRatio * 100)"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              aria-label="内存使用率"
+              class="mt-3"
+              type="line"
+              :percentage="Math.min(100, Math.max(0, memUsedRatio * 100))"
+              :status="memStatus"
+              :show-indicator="false"
+              :height="8"
+              :border-radius="4"
+            />
+
+            <p
+              class="mt-2 mb-0 text-[11px] leading-relaxed"
+              :style="{ color: 'var(--color-text-tertiary)' }"
             >
-              <div
-                class="h-full rounded-full transition-[width] duration-500"
-                :style="{
-                  width: `${Math.min(100, Math.max(0, memUsedRatio * 100))}%`,
-                  background:
-                    memUsedRatio > 0.9
-                      ? 'var(--color-danger)'
-                      : memUsedRatio > 0.75
-                        ? 'var(--color-warn)'
-                        : 'var(--color-accent)',
-                }"
-              />
-            </div>
-            <p class="mt-2 mb-0 text-[11px] text-[var(--color-text-secondary)]">
-              可用 {{ formatBytes(memory.availableBytes) }}；已用 = 总量 − 可回收页（free + speculative + purgeable + inactive）
+              可用 {{ formatBytes(memory.availableBytes) }}；已用 = 总量 − 可回收页（free +
+              speculative + purgeable + inactive）
             </p>
           </template>
-          <div v-else class="text-[13px] text-[var(--color-text-secondary)]">
+          <div v-else class="text-[13px]" :style="{ color: 'var(--color-text-secondary)' }">
             内存统计不可用
-            <span v-if="missingMap.get('memory')" class="block mt-1 text-[11px] opacity-80">
+            <span
+              v-if="missingMap.get('memory')"
+              class="mt-1 block text-[11px] opacity-80"
+            >
               原因：{{ missingMap.get('memory') }}
             </span>
           </div>
@@ -166,49 +191,38 @@ const isLoadingFirst = computed(() => overview.loading.value && !overview.data.v
             <div class="flex flex-wrap items-baseline justify-between gap-2">
               <div class="min-w-0">
                 <span class="mono text-[13px] font-medium">{{ disk.mountPoint }}</span>
-                <span class="ml-2 text-[11px] text-[var(--color-text-secondary)]">{{
-                  disk.fileSystem
-                }}</span>
+                <NTag size="small" :bordered="false" class="ml-2">{{ disk.fileSystem }}</NTag>
               </div>
-              <div class="mono text-[12px] text-[var(--color-text-secondary)]">
+              <div class="mono text-[12px]" :style="{ color: 'var(--color-text-secondary)' }">
                 {{ formatBytes(disk.usedBytes) }} / {{ formatBytes(disk.totalBytes) }}
-                <span class="ml-1 font-semibold text-[var(--color-text-primary)]">{{
-                  formatPercent(disk.usedRatio)
-                }}</span>
+                <span class="ml-1 font-semibold" :style="{ color: 'var(--color-text-primary)' }">
+                  {{ formatPercent(disk.usedRatio) }}
+                </span>
               </div>
             </div>
-            <div
-              class="mt-1.5 h-1.5 overflow-hidden rounded-full"
-              style="background: color-mix(in oklab, var(--color-text-secondary) 18%, transparent)"
-            >
-              <div
-                class="h-full rounded-full"
-                :style="{
-                  width: `${Math.min(100, disk.usedRatio * 100)}%`,
-                  background:
-                    disk.usedRatio > 0.9
-                      ? 'var(--color-danger)'
-                      : disk.usedRatio > 0.8
-                        ? 'var(--color-warn)'
-                        : 'var(--color-accent)',
-                }"
-              />
-            </div>
+            <NProgress
+              class="mt-1.5"
+              type="line"
+              :percentage="Math.min(100, disk.usedRatio * 100)"
+              :status="diskStatus(disk.usedRatio)"
+              :show-indicator="false"
+              :height="6"
+              :border-radius="3"
+            />
           </div>
-          <p class="m-0 text-[11px] text-[var(--color-text-secondary)]">
+          <p class="m-0 text-[11px]" :style="{ color: 'var(--color-text-tertiary)' }">
             注：APFS 上多个卷共享同一容器，容量数值可能相同，这是系统真实语义。
           </p>
         </div>
-        <div v-else class="text-[13px] text-[var(--color-text-secondary)]">
+        <div v-else class="text-[13px]" :style="{ color: 'var(--color-text-secondary)' }">
           磁盘信息不可用
-          <span v-if="missingMap.get('disks')" class="block mt-1 text-[11px] opacity-80">
+          <span v-if="missingMap.get('disks')" class="mt-1 block text-[11px] opacity-80">
             原因：{{ missingMap.get('disks') }}
           </span>
         </div>
       </PanelCard>
     </template>
 
-    <!-- 未实现的模块明确标注 -->
     <Callout tone="info" badge="M1" title="当前阶段说明">
       本版本（M1）仅提供只读状态展示。IPv6 防火墙规则编辑与应用、定时重启、启动项管理均在后续里程碑实现，
       对应接口会明确返回「未实现」，不会伪造操作成功。

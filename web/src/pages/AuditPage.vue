@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, h, ref } from 'vue'
+import { NTag } from 'naive-ui'
+import type { DataTableColumns } from 'naive-ui'
 import { api } from '../api/client'
 import { useResource } from '../lib/useResource'
 import { formatTime } from '../lib/format'
+import type { AuditEntry } from '../api/types'
 import PanelCard from '../components/PanelCard.vue'
 import Callout from '../components/Callout.vue'
 
@@ -11,83 +14,114 @@ const audit = useResource(() => api.audit(limit.value), { intervalMs: 15000 })
 
 const items = computed(() => audit.data.value?.items ?? [])
 
-const resultStyle: Record<string, { label: string; color: string }> = {
-  success: { label: '成功', color: 'var(--color-ok)' },
-  failure: { label: '失败', color: 'var(--color-danger)' },
-  denied: { label: '拒绝', color: 'var(--color-warn)' },
+const resultMeta: Record<string, { label: string; type: 'success' | 'error' | 'warning' }> = {
+  success: { label: '成功', type: 'success' },
+  failure: { label: '失败', type: 'error' },
+  denied: { label: '拒绝', type: 'warning' },
 }
 
 function detailText(detail?: Record<string, unknown>): string {
   if (!detail) return ''
-  const entries = Object.entries(detail)
-  if (entries.length === 0) return ''
-  return entries.map(([k, v]) => `${k}=${String(v)}`).join(' ')
+  return Object.entries(detail)
+    .map(([k, v]) => `${k}=${String(v)}`)
+    .join(' ')
 }
+
+// 用 DataTable 而不是手写 table：拿到排序、列宽自适应、空状态与深色适配。
+const columns = computed<DataTableColumns<AuditEntry>>(() => [
+  {
+    title: '时间',
+    key: 'at',
+    width: 170,
+    sorter: (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime(),
+    render: (row) => h('span', { class: 'mono text-[12px]' }, formatTime(row.at)),
+  },
+  {
+    title: '动作',
+    key: 'action',
+    width: 170,
+    render: (row) => h('span', { class: 'mono text-[12px] font-medium' }, row.action),
+  },
+  {
+    title: '调用方',
+    key: 'actor',
+    width: 180,
+    ellipsis: { tooltip: true },
+    render: (row) => h('span', { class: 'mono text-[11.5px] opacity-80' }, row.actor),
+  },
+  {
+    title: '结果',
+    key: 'result',
+    width: 90,
+    filterOptions: [
+      { label: '成功', value: 'success' },
+      { label: '失败', value: 'failure' },
+      { label: '拒绝', value: 'denied' },
+    ],
+    filter: (value, row) => row.result === value,
+    // 用 NTag 而非自绘 span：Tag 的文字色已在主题里压深到满足 WCAG AA，
+    // 自绘要用 accent 色时只有 4.0:1，容易踩坑。
+    render: (row) => {
+      const m = resultMeta[row.result] ?? { label: row.result, type: 'warning' as const }
+      return h(
+        NTag,
+        { size: 'small', bordered: false, type: m.type },
+        { default: () => m.label },
+      )
+    },
+  },
+  {
+    title: '补充',
+    key: 'detail',
+    ellipsis: { tooltip: true },
+    render: (row) => {
+      const text = [row.target, detailText(row.detail)].filter(Boolean).join(' ')
+      return h('span', { class: 'mono text-[11px] opacity-70' }, text || '—')
+    },
+  },
+])
 </script>
 
 <template>
-  <div class="mx-auto flex max-w-5xl flex-col gap-4">
+  <div class="page-stack page-narrow">
     <Callout v-if="audit.error.value" tone="danger" badge="错误" title="无法获取审计日志">
       {{ audit.error.value }}
     </Callout>
 
-    <PanelCard title="操作审计" subtitle="记录高风险操作与接口调用结果，不包含密码、令牌等敏感内容">
+    <PanelCard
+      title="操作审计"
+      subtitle="记录高风险操作与接口调用结果，不包含密码、令牌等敏感内容"
+      :padded="false"
+    >
       <template #actions>
-        <select
-          v-model.number="limit"
-          class="rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-surface)] px-2 py-1 text-[12px]"
-          aria-label="显示条数"
-          @change="audit.refresh()"
-        >
-          <option :value="50">最近 50 条</option>
-          <option :value="100">最近 100 条</option>
-          <option :value="200">最近 200 条</option>
-        </select>
+        <NSelect
+          v-model:value="limit"
+          size="small"
+          style="width: 120px"
+          :options="[
+            { label: '最近 50 条', value: 50 },
+            { label: '最近 100 条', value: 100 },
+            { label: '最近 200 条', value: 200 },
+          ]"
+          @update:value="audit.refresh()"
+        />
       </template>
 
-      <div v-if="items.length === 0" class="text-[13px] text-[var(--color-text-secondary)]">
-        <span v-if="audit.loading.value">正在读取…</span>
-        <span v-else>暂无审计记录。访问其他页面后会自动产生读取记录。</span>
-      </div>
-
-      <div v-else class="overflow-x-auto">
-        <table class="w-full border-collapse text-[12px]">
-          <thead>
-            <tr class="border-b border-[var(--color-border-subtle)] text-left">
-              <th class="py-2 pr-3 font-medium text-[var(--color-text-secondary)]">时间</th>
-              <th class="py-2 pr-3 font-medium text-[var(--color-text-secondary)]">动作</th>
-              <th class="py-2 pr-3 font-medium text-[var(--color-text-secondary)]">调用方</th>
-              <th class="py-2 pr-3 font-medium text-[var(--color-text-secondary)]">结果</th>
-              <th class="py-2 font-medium text-[var(--color-text-secondary)]">补充</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="e in items"
-              :key="e.id"
-              class="border-b border-[var(--color-border-subtle)] last:border-0"
-            >
-              <td class="mono whitespace-nowrap py-1.5 pr-3 opacity-80">{{ formatTime(e.at) }}</td>
-              <td class="mono py-1.5 pr-3">{{ e.action }}</td>
-              <td class="mono py-1.5 pr-3 break-all opacity-80">{{ e.actor }}</td>
-              <td class="whitespace-nowrap py-1.5 pr-3">
-                <span
-                  class="rounded px-1.5 py-0.5 text-[10px] font-medium"
-                  :style="{
-                    background: `color-mix(in oklab, ${resultStyle[e.result]?.color ?? 'var(--color-text-secondary)'} 14%, transparent)`,
-                    color: resultStyle[e.result]?.color ?? 'var(--color-text-secondary)',
-                  }"
-                >
-                  {{ resultStyle[e.result]?.label ?? e.result }}
-                </span>
-              </td>
-              <td class="mono py-1.5 break-all text-[11px] opacity-70">
-                {{ e.target }} {{ detailText(e.detail) }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <NDataTable
+        :columns="columns"
+        :data="items"
+        :loading="audit.loading.value"
+        :row-key="(row: AuditEntry) => row.id"
+        :bordered="false"
+        :single-line="false"
+        size="small"
+        :pagination="{ pageSize: 20, showSizePicker: false }"
+        :scroll-x="760"
+      >
+        <template #empty>
+          <NEmpty description="暂无审计记录，访问其他页面后会自动产生" class="py-6" />
+        </template>
+      </NDataTable>
     </PanelCard>
 
     <Callout tone="info" badge="说明">
