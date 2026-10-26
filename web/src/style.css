@@ -112,6 +112,32 @@ html.dark {
     color: var(--color-text-secondary);
     text-transform: uppercase;
   }
+
+  /* 监听端口的小按钮：点击即发起连通性检测。
+     用按钮而不是 tag，是因为它真的可点——让可点击的东西
+     长得像可点击的，比加一行说明文字更有效。 */
+  .listener-chip {
+    display: inline-flex;
+    align-items: baseline;
+    padding: 0.15rem 0.5rem;
+    border-radius: 0.375rem;
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-surface-sunken);
+    color: var(--color-text-primary);
+    font-size: 0.8125rem;
+    cursor: pointer;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+
+  .listener-chip:hover {
+    border-color: var(--color-accent);
+    background: var(--color-accent-soft);
+  }
+
+  .listener-chip:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
 }
 
 /* ---- Naive UI 局部可访问性修补 ----

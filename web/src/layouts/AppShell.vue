@@ -6,7 +6,7 @@
 // 而管理面板是长期自用的工具，键盘效率很重要。
 //
 // 移动端不用 NDrawer 而是收成顶部下拉菜单：
-// 侧栏只有 7 项，抽屉的额外层级反而增加操作步数。
+// 侧栏只有 8 项，抽屉的额外层级反而增加操作步数。
 
 import { computed, h, onMounted, ref } from 'vue'
 import type { VNodeChild } from 'vue'
@@ -23,7 +23,7 @@ const dialog = useDialog()
 
 const collapsed = ref(false)
 
-// 用内联 SVG 而非图标库：只有 7 个图标，不值得引入额外依赖。
+// 用内联 SVG 而非图标库：只有 8 个图标，不值得引入额外依赖。
 // 返回 VNode 数组（h('svg', props, children) 的 children 形态）。
 function renderIcon(children: VNodeChild[]) {
   return () =>
@@ -69,6 +69,11 @@ const iconPaths: Record<string, VNodeChild[]> = {
     h('path', { d: 'M4 6h16M4 12h16M4 18h10' }),
     h('circle', { cx: 20, cy: 18, r: 1.6 }),
   ],
+  orbstack: [
+    // 立方体图标，表示容器
+    h('path', { d: 'M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z' }),
+    h('path', { d: 'M12 12l8-4.5M12 12v9M12 12L4 7.5' }),
+  ],
   audit: [h('path', { d: 'M4 5h16v14H4z' }), h('path', { d: 'M8 9h8M8 13h5' })],
   settings: [
     h('circle', { cx: 12, cy: 12, r: 3 }),
@@ -103,6 +108,11 @@ const menuOptions = computed<MenuOption[]>(() => [
     label: () => h(RouterLink, { to: '/network' }, () => '网络诊断'),
     key: '/network',
     icon: renderIcon(iconPaths.network!),
+  },
+  {
+    label: () => h(RouterLink, { to: '/orbstack' }, () => 'OrbStack'),
+    key: '/orbstack',
+    icon: renderIcon(iconPaths.orbstack!),
   },
   {
     label: () => h(RouterLink, { to: '/audit' }, () => '操作审计'),

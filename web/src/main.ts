@@ -10,6 +10,7 @@ import OverviewPage from './pages/OverviewPage.vue'
 import FirewallPage from './pages/FirewallPage.vue'
 import PowerPage from './pages/PowerPage.vue'
 import ServicesPage from './pages/ServicesPage.vue'
+import OrbStackPage from './pages/OrbStackPage.vue'
 import NetworkPage from './pages/NetworkPage.vue'
 import AuditPage from './pages/AuditPage.vue'
 import SettingsPage from './pages/SettingsPage.vue'
@@ -23,6 +24,7 @@ const router = createRouter({
     { path: '/power', name: 'power', component: PowerPage, meta: { title: '电源与计划任务' } },
     { path: '/services', name: 'services', component: ServicesPage, meta: { title: '启动项' } },
     { path: '/network', name: 'network', component: NetworkPage, meta: { title: '网络诊断' } },
+    { path: '/orbstack', name: 'orbstack', component: OrbStackPage, meta: { title: 'OrbStack' } },
     { path: '/audit', name: 'audit', component: AuditPage, meta: { title: '操作审计' } },
     { path: '/settings', name: 'settings', component: SettingsPage, meta: { title: '设置' } },
     { path: '/login', name: 'login', component: LoginPage, meta: { title: '登录', public: true } },

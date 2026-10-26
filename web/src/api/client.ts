@@ -313,3 +313,31 @@ export const servicesApi = {
     })
   },
 }
+
+// ---- M6：网络诊断与容器 ----
+
+import type {
+  ContainersOverview,
+  DiagnosticsSnapshot,
+  TCPProbeResult,
+} from './diagnostics'
+
+export const diagApi = {
+  async snapshot(): Promise<ApiResult<DiagnosticsSnapshot>> {
+    return request<DiagnosticsSnapshot>('/api/v1/diagnostics')
+  },
+
+  /** 检测 TCP 连通性。目标默认限本机地址（后端强制）。 */
+  async probe(host: string, port: number, timeoutMs = 3000): Promise<ApiResult<TCPProbeResult>> {
+    return request<TCPProbeResult>('/api/v1/diagnostics/tcp', {
+      method: 'POST',
+      body: JSON.stringify({ host, port, timeoutMs }),
+    })
+  },
+}
+
+export const orbstackApi = {
+  async containers(): Promise<ApiResult<ContainersOverview>> {
+    return request<ContainersOverview>('/api/v1/orbstack/containers')
+  },
+}
