@@ -224,7 +224,12 @@ dscl . -create /Users/_macpanel PrimaryGroupID "$(dscl . -read /Groups/_macpanel
 # 2. 目录与权限
 #    Agent 以 root 运行；Server 以 _macpanel 运行，只能读取令牌、不能写入。
 mkdir -p "${DATA_DIR}/data" "${RUN_DIR}" "${LOG_DIR}"
-chown -R root:wheel "${DATA_DIR}"
+# 父目录的组必须是 _macpanel：Server 以该身份运行，需要「进入」这个目录
+# 才能访问其中的 data 与 ipc.token。
+# 0750 root:wheel 是错的 —— _macpanel 不在 wheel 组里，others 位是 ---，
+# 连 traverse 都不行，表现为「创建数据目录失败: permission denied」。
+# 组给 r-x 而不是 rwx：能进、能读令牌，但不能在父目录里建东西。
+chown root:_macpanel "${DATA_DIR}"
 chmod 0750 "${DATA_DIR}"
 chown -R _macpanel:_macpanel "${DATA_DIR}/data"
 chmod 0700 "${DATA_DIR}/data"
