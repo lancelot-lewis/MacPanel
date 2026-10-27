@@ -75,5 +75,10 @@ jobs:
         working-directory: web
         run: npm ci
 
+      # web 包用 //go:embed all:dist 内嵌前端产物，go vet/test 编译期就要求 web/dist 存在，
+      # 所以必须在 make check 前先构建前端（build job 同理，它走的是 make build）。
+      - name: Build frontend
+        run: make web-build
+
       - name: Check (lint + test + web typecheck)
         run: make check
