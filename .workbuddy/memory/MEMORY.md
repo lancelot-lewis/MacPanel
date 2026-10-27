@@ -302,18 +302,22 @@ sudo macpanel-uninstall [--yes|--purge]   # 随包安装
 优先级：`MACPANEL_PKG_VERSION`（CI 传 run_number）> 最近 git tag > `0.1.<提交计数>`。
 卸载脚本已在**最开头** forget 收据（放最前：中断也能留下干净状态）。
 
-## payload 里 /Library/LaunchDaemons 下的文件装不进磁盘（实机证实）
+## 装完 plist 消失的真凶：第三方清理工具，不是 installer（实机证实）
 
-`installer` 会**不写** payload 中 `/Library/LaunchDaemons/` 下的文件：包里有（`lsbom` 可见）、
-plist 合法（`plutil -lint` OK）、安装顺利完成、收据登记了，**但磁盘上没有**，
-且 `install.log` 无任何删除记录；同一台机器 `/usr/local/bin` 下的 payload 文件正常落盘。
-已排除：打包缺文件、同版本 obsoleting、事后被第三方进程删、plist 无效。
+**installer 与 payload 都是清白的。** 排查链（照此复现，别再猜）：
+手工 `cp` plist 进 `/Library/LaunchDaemons` → `ls` 可见 →
+执行 `launchctl bootstrap system <plist>` → **文件消失**；
+对照实验（对无关 plist 做 gui 域 bootstrap，失败退出 5）证明 **bootstrap 本身不删文件**。
 
-**因此 plist 由 postinstall 写入，不能依赖 payload 落盘**：两份 plist 随 scripts 目录打包，
-postinstall 用 `install -m 0644 -o root -g wheel` 从 `$SCRIPT_DIR` 写进 `/Library/LaunchDaemons`
-后再 bootstrap（postinstall 本来就能成功创建同在 /Library 下的数据与日志目录）。
+结论：本机装的**腾讯柠檬清理**（`com.tencent.LemonDaemon`，KeepAlive 的 root 守护进程，
+带启动项管理能力）在 launchd 注册任务后删除 plist。同类工具（各种「清理/优化」软件）同理。
 
-推论：以后凡是要往 `/Library/LaunchDaemons` 落文件的，都别只放进 payload。
+**教训：看到「安装成功但文件不在」，先怀疑本机安全/清理类常驻进程，不要先怀疑打包。**
+代码侧对应措施：plist 由 postinstall 从 scripts 目录再写一次（冗余保险），
+并在 bootstrap 后自检——文件若消失就打印明确提示（见 build-pkg.sh 第 6 步）。
+
+（此前我两轮归错了因：先猜打包缺文件、再猜同版本 obsoleting、再猜 installer 不写盘，
+全部被证据推翻。改动前先做对照实验。）
 
 ## macOS shell 陷阱（补一条）
 

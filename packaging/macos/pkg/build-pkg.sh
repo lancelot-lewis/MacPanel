@@ -81,16 +81,13 @@ for plist in "${REPO_ROOT}"/packaging/macos/launchd/*.plist; do
 		"${plist}" > "${PAYLOAD_ROOT}/Library/LaunchDaemons/${name}"
 	chmod 0644 "${PAYLOAD_ROOT}/Library/LaunchDaemons/${name}"
 
-	# 同一份内容再放进 scripts 目录一份。
+	# 同一份内容再放进 scripts 目录一份，由 postinstall 再写一次。
 	#
-	# 为什么不能只依赖 payload：实机安装（macOS 26 的 Mac mini）证实，
-	# installer 会把 payload 里 /Library/LaunchDaemons/ 下的文件**写不进磁盘**——
-	# 包里有（lsbom 可见）、安装顺利完成、收据也登记了，但文件在磁盘上不存在，
-	# 且 install.log 里没有任何删除记录。而同一台机器上 /usr/local/bin 下的
-	# payload 文件正常落盘，postinstall 也能成功创建 /Library 下的其它目录。
-	#
-	# 因此由 postinstall 从脚本自带目录再写一次，绕开 payload 落盘这一环。
-	# 两份内容完全一致，先后来写是幂等的。
+	# 这是冗余保险，不是在修打包缺陷：installer 确实会把 payload 里的
+	# /Library/LaunchDaemons 文件正常写入磁盘。
+	# 真正的问题是某些第三方「清理 / 启动项管理」类工具会在 launchd 注册新任务后
+	# 把 plist 删掉（本机实测为腾讯柠檬清理 com.tencent.LemonDaemon）。
+	# 由 postinstall 写入可以保证 bootstrap 前文件一定存在且内容正确。
 	cp "${PAYLOAD_ROOT}/Library/LaunchDaemons/${name}" "${SCRIPTS_DIR}/${name}"
 done
 
@@ -246,9 +243,9 @@ fi
 
 # 4. 写入 launchd 定义
 #
-# 不依赖 payload：实机安装证实 installer 不会把 /Library/LaunchDaemons/ 下的
-# payload 文件写进磁盘（包里有、收据登记了、磁盘上没有，且 install.log 无删除记录）。
-# 这里从脚本自带目录写入，保证第 5 步 bootstrap 时文件一定存在。
+# 冗余保险：保证 bootstrap 前文件一定存在且内容与模板一致。
+# 若装完后 plist 又消失，通常不是本应用的问题，而是第三方清理 / 启动项管理类
+# 工具在 launchd 注册之后删掉了它（本机实测为腾讯柠檬清理）。
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 install -m 0644 -o root -g wheel "${SCRIPT_DIR}/com.macpanel.agent.plist" \
 	/Library/LaunchDaemons/com.macpanel.agent.plist
@@ -261,6 +258,16 @@ launchctl bootout system /Library/LaunchDaemons/com.macpanel.agent.plist 2>/dev/
 launchctl bootout system /Library/LaunchDaemons/com.macpanel.server.plist 2>/dev/null || true
 launchctl bootstrap system /Library/LaunchDaemons/com.macpanel.agent.plist
 launchctl bootstrap system /Library/LaunchDaemons/com.macpanel.server.plist
+
+# 6. 自检：某些第三方工具会在 launchd 注册成功后把 plist 删掉，
+#    届时会表现为「安装一切正常、面板却打不开」，很难自查。这里显式报出来。
+if [[ ! -f /Library/LaunchDaemons/com.macpanel.agent.plist ]]; then
+	echo "" >&2
+	echo "警告：LaunchDaemon 定义在注册后消失，服务不会随系统启动。" >&2
+	echo "      常见原因是第三方「清理 / 启动项管理」类工具（本机已知：腾讯柠檬清理）" >&2
+	echo "      在 launchd 注册后删除了它。请在对应工具里把 com.macpanel.* 加入白名单，" >&2
+	echo "      或暂时停用该工具后重新安装本包。" >&2
+fi
 
 echo "安装完成。管理面板: http://127.0.0.1:7788"
 echo ""

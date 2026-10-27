@@ -219,7 +219,7 @@ sudo macpanel-uninstall
 | CLI 日志输出 `%!(EXTRA string=reason…)` | Logger 是 slog 风格 key/value，却用 `fmt.Sprintf` 展开 | 新增 `renderLogArgs` 渲染 `k=v`（附回归测试） |
 | **干净卸载后再重装，面板依旧起不来：`/Library/LaunchDaemons/` 里没有任何 plist** | 两次安装的版本号完全相同，macOS 触发 **receipt-based obsoleting**，会在安装完成后把 payload 里的文件删掉；而 `macpanel-uninstall` 从不清除收据，于是「卸载→重装」永远还是同版本覆盖 | 版本号强制递增（`MACPANEL_PKG_VERSION` > tag > 提交计数兜底），且卸载时 `pkgutil --forget com.macpanel` |
 | **升级前备份只增不减，磁盘慢慢被吃光** | `preinstall` 用 `head -n -"${KEEP}"` 保留最近 KEEP 份，负行数是 GNU 专有语法，macOS 的 BSD head 报 `illegal line count -- -5` 后整段静默失败 | 改为 `sort -r \| tail -n +"$((KEEP + 1))"`，BSD / GNU 都成立 |
-| **装完后面板打不开：`/Library/LaunchDaemons/` 下没有任何 plist，且安装「看起来完全成功」** | **installer 不会把 payload 里 `/Library/LaunchDaemons/` 下的文件写进磁盘**。已逐项排除：包里有（`lsbom` 可见）、plist 合法（`plutil -lint` OK）、非版本号 obsoleting、非事后被删（安装完立刻 `ls` 也看不到）、`install.log` 无任何删除记录。而同一台机器上 `/usr/local/bin` 下的 payload 文件正常落盘 | 不再依赖 payload 落盘：两份 plist 随 scripts 目录一起打包，由 `postinstall` 用 `install -m 0644` 直接写入后再 bootstrap（postinstall 本来就能成功创建同在 `/Library` 下的数据与日志目录） |
+| **装完后面板打不开：`/Library/LaunchDaemons/` 下没有任何 plist，且安装「看起来完全成功」** | **本机第三方工具（腾讯柠檬清理 `com.tencent.LemonDaemon`，常驻 root 守护进程）在 launchd 注册任务后把 plist 删了**。判定过程：`cp` 手动放入后 `ls` 可见；执行 `launchctl bootstrap` 后消失；对照实验（对无关 plist 做 bootstrap）证明 bootstrap 本身不删文件。installer 与 payload 都是清白的 | 非本应用缺陷，属环境冲突。代码侧只做两件事：plist 由 `postinstall` 再写一次（冗余保险），以及 bootstrap 后自检——文件若消失就明确打印「疑似第三方清理工具所为」的提示 |
 | BOM 里有 9 条 `._xxx` AppleDouble | macOS 给本地文件写 `com.apple.provenance`（内核合成，删不掉），pkgbuild 为其生成 AppleDouble | 尽力清除 xattr；卸载时顺手清理；`verify-pkg` 将其列为**警告**并说明原因 |
 
 ---
