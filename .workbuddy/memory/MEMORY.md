@@ -302,6 +302,19 @@ sudo macpanel-uninstall [--yes|--purge]   # 随包安装
 优先级：`MACPANEL_PKG_VERSION`（CI 传 run_number）> 最近 git tag > `0.1.<提交计数>`。
 卸载脚本已在**最开头** forget 收据（放最前：中断也能留下干净状态）。
 
+## payload 里 /Library/LaunchDaemons 下的文件装不进磁盘（实机证实）
+
+`installer` 会**不写** payload 中 `/Library/LaunchDaemons/` 下的文件：包里有（`lsbom` 可见）、
+plist 合法（`plutil -lint` OK）、安装顺利完成、收据登记了，**但磁盘上没有**，
+且 `install.log` 无任何删除记录；同一台机器 `/usr/local/bin` 下的 payload 文件正常落盘。
+已排除：打包缺文件、同版本 obsoleting、事后被第三方进程删、plist 无效。
+
+**因此 plist 由 postinstall 写入，不能依赖 payload 落盘**：两份 plist 随 scripts 目录打包，
+postinstall 用 `install -m 0644 -o root -g wheel` 从 `$SCRIPT_DIR` 写进 `/Library/LaunchDaemons`
+后再 bootstrap（postinstall 本来就能成功创建同在 /Library 下的数据与日志目录）。
+
+推论：以后凡是要往 `/Library/LaunchDaemons` 落文件的，都别只放进 payload。
+
 ## macOS shell 陷阱（补一条）
 
 `head -n -N`（负行数）是 **GNU 专有**，macOS 的 BSD head 报 `illegal line count` 后整段静默失败。

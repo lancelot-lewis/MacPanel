@@ -80,6 +80,18 @@ for plist in "${REPO_ROOT}"/packaging/macos/launchd/*.plist; do
 		-e "s|__LOG_DIR__|/Library/Logs/MacPanel|g" \
 		"${plist}" > "${PAYLOAD_ROOT}/Library/LaunchDaemons/${name}"
 	chmod 0644 "${PAYLOAD_ROOT}/Library/LaunchDaemons/${name}"
+
+	# 同一份内容再放进 scripts 目录一份。
+	#
+	# 为什么不能只依赖 payload：实机安装（macOS 26 的 Mac mini）证实，
+	# installer 会把 payload 里 /Library/LaunchDaemons/ 下的文件**写不进磁盘**——
+	# 包里有（lsbom 可见）、安装顺利完成、收据也登记了，但文件在磁盘上不存在，
+	# 且 install.log 里没有任何删除记录。而同一台机器上 /usr/local/bin 下的
+	# payload 文件正常落盘，postinstall 也能成功创建 /Library 下的其它目录。
+	#
+	# 因此由 postinstall 从脚本自带目录再写一次，绕开 payload 落盘这一环。
+	# 两份内容完全一致，先后来写是幂等的。
+	cp "${PAYLOAD_ROOT}/Library/LaunchDaemons/${name}" "${SCRIPTS_DIR}/${name}"
 done
 
 echo "==> 生成安装前脚本（升级前备份）"
@@ -232,7 +244,18 @@ else
 	echo "IPC 令牌已存在，保留原值"
 fi
 
-# 4. 加载 launchd 服务（先卸旧再装新，避免残留旧定义）
+# 4. 写入 launchd 定义
+#
+# 不依赖 payload：实机安装证实 installer 不会把 /Library/LaunchDaemons/ 下的
+# payload 文件写进磁盘（包里有、收据登记了、磁盘上没有，且 install.log 无删除记录）。
+# 这里从脚本自带目录写入，保证第 5 步 bootstrap 时文件一定存在。
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+install -m 0644 -o root -g wheel "${SCRIPT_DIR}/com.macpanel.agent.plist" \
+	/Library/LaunchDaemons/com.macpanel.agent.plist
+install -m 0644 -o root -g wheel "${SCRIPT_DIR}/com.macpanel.server.plist" \
+	/Library/LaunchDaemons/com.macpanel.server.plist
+
+# 5. 加载 launchd 服务（先卸旧再装新，避免残留旧定义）
 echo "加载 launchd 服务"
 launchctl bootout system /Library/LaunchDaemons/com.macpanel.agent.plist 2>/dev/null || true
 launchctl bootout system /Library/LaunchDaemons/com.macpanel.server.plist 2>/dev/null || true
