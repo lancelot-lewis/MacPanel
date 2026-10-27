@@ -258,6 +258,22 @@ install -m 0644 -o root -g wheel "${SCRIPT_DIR}/com.macpanel.agent.plist" \
 install -m 0644 -o root -g wheel "${SCRIPT_DIR}/com.macpanel.server.plist" \
 	/Library/LaunchDaemons/com.macpanel.server.plist
 
+# 注入 _macpanel 的真实 UID：Server 以该身份连接 Agent 的 IPC，
+# 而 ipc.UIDAllowed 只放行「与 Agent 同 euid（root=0）」或显式列出的 UID。
+# 少了这一步，面板能打开但所有状态接口都返回 500（「调用方身份不受信任」）。
+# UID 是安装时动态分配的，所以只能在安装时替换，不能写死在模板里。
+SERVER_UID="$(dscl . -read /Users/_macpanel UniqueID 2>/dev/null | awk '{print $2}')"
+if [[ -z "${SERVER_UID}" ]]; then
+	echo "错误: 无法确定 _macpanel 的 UID" >&2
+	exit 1
+fi
+/usr/bin/sed -i '' "s|__SERVER_UID__|${SERVER_UID}|g" /Library/LaunchDaemons/com.macpanel.agent.plist
+if grep -q "__SERVER_UID__" /Library/LaunchDaemons/com.macpanel.agent.plist; then
+	echo "错误: Agent plist 中的 __SERVER_UID__ 未被替换" >&2
+	exit 1
+fi
+plutil -lint /Library/LaunchDaemons/com.macpanel.agent.plist >/dev/null
+
 # 5. 加载 launchd 服务（先卸旧再装新，避免残留旧定义）
 echo "加载 launchd 服务"
 launchctl bootout system /Library/LaunchDaemons/com.macpanel.agent.plist 2>/dev/null || true

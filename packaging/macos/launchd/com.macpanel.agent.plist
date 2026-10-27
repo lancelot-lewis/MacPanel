@@ -36,6 +36,14 @@
 		<string>/etc/pf.anchors/com.macpanel.ipv6</string>
 		<key>MACPANEL_LOG_LEVEL</key>
 		<string>info</string>
+		<!--
+			Server 以 _macpanel 身份连接本 Agent 的 IPC，而 ipc.UIDAllowed 只放行
+			「与 Agent 同 euid（root=0）」或这里显式列出的 UID。
+			_macpanel 的 UID 是安装时动态分配的（从 350 起找空位），
+			因此不能写死在模板里，由 postinstall 用实际 UID 替换 __SERVER_UID__。
+		-->
+		<key>MACPANEL_ALLOWED_PEER_UIDS</key>
+		<string>__SERVER_UID__</string>
 	</dict>
 
 	<key>RunAtLoad</key>
