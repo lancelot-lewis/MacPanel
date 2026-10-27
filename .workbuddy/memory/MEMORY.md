@@ -302,19 +302,24 @@ sudo macpanel-uninstall [--yes|--purge]   # 随包安装
 优先级：`MACPANEL_PKG_VERSION`（CI 传 run_number）> 最近 git tag > `0.1.<提交计数>`。
 卸载脚本已在**最开头** forget 收据（放最前：中断也能留下干净状态）。
 
-## 装完 plist 消失的真凶：第三方清理工具，不是 installer（实机证实）
+## 装完 plist 消失的真凶：本应用自己（已修，实机证实）
 
-**installer 与 payload 都是清白的。** 排查链（照此复现，别再猜）：
-手工 `cp` plist 进 `/Library/LaunchDaemons` → `ls` 可见 →
-执行 `launchctl bootstrap system <plist>` → **文件消失**；
-对照实验（对无关 plist 做 gui 域 bootstrap，失败退出 5）证明 **bootstrap 本身不删文件**。
+`tasksched` 的「清理孤儿 plist」：`ListManaged()` 列出 `/Library/LaunchDaemons` 下所有
+`com.macpanel.*`，不在任务表里的就 `Remove()` 删掉。而 `LabelPrefix = "com.macpanel."`
+**同时覆盖本应用自身服务**，于是 `com.macpanel.agent` / `com.macpanel.server`
+被当成残留任务 unlink。完整链路：bootstrap → launchd 启动 agent → agent 对账 → 删掉自己的 plist。
 
-结论：本机装的**腾讯柠檬清理**（`com.tencent.LemonDaemon`，KeepAlive 的 root 守护进程，
-带启动项管理能力）在 launchd 注册任务后删除 plist。同类工具（各种「清理/优化」软件）同理。
+修复：`isTaskLabel()` 只认 `com.macpanel.task.*` —— 对账循环跳过非任务 label，
+且 `launchd.Installer.Remove` 硬拒非任务 label（双层）。
 
-**教训：看到「安装成功但文件不在」，先怀疑本机安全/清理类常驻进程，不要先怀疑打包。**
-代码侧对应措施：plist 由 postinstall 从 scripts 目录再写一次（冗余保险），
-并在 bootstrap 后自检——文件若消失就打印明确提示（见 build-pkg.sh 第 6 步）。
+**定位手法（以后直接用，别再猜）**：
+`sudo fs_usage -w -f filesystem | grep com.macpanel` —— 会直接打出执行 unlink 的**进程名**。
+当时打出来的是 `macpanel` 自己，一举终结了前面四轮的错误猜测。
+
+**教训**：`LabelPrefix` 这类「命名空间前缀」一旦同时覆盖「本应用自身服务」和「用户创建的
+任务」，任何基于前缀的批量清理都必须再收一层判据。我在这上面连错四轮
+（猜包缺文件 → 猜 obsoleting → 猜 installer 不写盘 → 猜第三方清理工具），
+全是靠推理而不是靠观测；**先上 fs_usage 这类能直接指认进程的工具。**
 
 （此前我两轮归错了因：先猜打包缺文件、再猜同版本 obsoleting、再猜 installer 不写盘，
 全部被证据推翻。改动前先做对照实验。）

@@ -219,7 +219,7 @@ sudo macpanel-uninstall
 | CLI 日志输出 `%!(EXTRA string=reason…)` | Logger 是 slog 风格 key/value，却用 `fmt.Sprintf` 展开 | 新增 `renderLogArgs` 渲染 `k=v`（附回归测试） |
 | **干净卸载后再重装，面板依旧起不来：`/Library/LaunchDaemons/` 里没有任何 plist** | 两次安装的版本号完全相同，macOS 触发 **receipt-based obsoleting**，会在安装完成后把 payload 里的文件删掉；而 `macpanel-uninstall` 从不清除收据，于是「卸载→重装」永远还是同版本覆盖 | 版本号强制递增（`MACPANEL_PKG_VERSION` > tag > 提交计数兜底），且卸载时 `pkgutil --forget com.macpanel` |
 | **升级前备份只增不减，磁盘慢慢被吃光** | `preinstall` 用 `head -n -"${KEEP}"` 保留最近 KEEP 份，负行数是 GNU 专有语法，macOS 的 BSD head 报 `illegal line count -- -5` 后整段静默失败 | 改为 `sort -r \| tail -n +"$((KEEP + 1))"`，BSD / GNU 都成立 |
-| **装完后面板打不开：`/Library/LaunchDaemons/` 下没有任何 plist，且安装「看起来完全成功」** | **本机第三方工具（腾讯柠檬清理 `com.tencent.LemonDaemon`，常驻 root 守护进程）在 launchd 注册任务后把 plist 删了**。判定过程：`cp` 手动放入后 `ls` 可见；执行 `launchctl bootstrap` 后消失；对照实验（对无关 plist 做 bootstrap）证明 bootstrap 本身不删文件。installer 与 payload 都是清白的 | 非本应用缺陷，属环境冲突。代码侧只做两件事：plist 由 `postinstall` 再写一次（冗余保险），以及 bootstrap 后自检——文件若消失就明确打印「疑似第三方清理工具所为」的提示 |
+| **装完后面板打不开：`/Library/LaunchDaemons/` 下没有任何 plist，且安装「看起来完全成功」** | **本应用自杀**：`tasksched` 的「清理孤儿 plist」用 `ListManaged()` 列出所有 `com.macpanel.*`，把不在任务表里的删掉；而 `LabelPrefix = "com.macpanel."` 同时覆盖本应用自身服务，于是 `com.macpanel.agent` / `com.macpanel.server` 被当成残留任务 unlink。链路：bootstrap → 启动 agent → agent 对账 → 删掉自己的 plist。installer、payload、第三方软件全部清白 | `isTaskLabel()` 只认 `com.macpanel.task.*`：对账循环跳过非任务 label；`launchd.Installer.Remove` 再硬拒一次非任务 label。定位手法：`sudo fs_usage -w -f filesystem \| grep com.macpanel` 直接打出做 unlink 的进程（当时是 `macpanel` 自己） |
 | BOM 里有 9 条 `._xxx` AppleDouble | macOS 给本地文件写 `com.apple.provenance`（内核合成，删不掉），pkgbuild 为其生成 AppleDouble | 尽力清除 xattr；卸载时顺手清理；`verify-pkg` 将其列为**警告**并说明原因 |
 
 ---

@@ -83,11 +83,14 @@ for plist in "${REPO_ROOT}"/packaging/macos/launchd/*.plist; do
 
 	# 同一份内容再放进 scripts 目录一份，由 postinstall 再写一次。
 	#
-	# 这是冗余保险，不是在修打包缺陷：installer 确实会把 payload 里的
-	# /Library/LaunchDaemons 文件正常写入磁盘。
-	# 真正的问题是某些第三方「清理 / 启动项管理」类工具会在 launchd 注册新任务后
-	# 把 plist 删掉（本机实测为腾讯柠檬清理 com.tencent.LemonDaemon）。
-	# 由 postinstall 写入可以保证 bootstrap 前文件一定存在且内容正确。
+	# 这是冗余保险：installer 确实会把 payload 里的 /Library/LaunchDaemons
+	# 文件正常写入磁盘，由 postinstall 再写一次只是保证 bootstrap 前文件
+	# 一定存在且内容与模板一致。
+	#
+	# 历史上这里出现过「装完 plist 就没了」，根因是本应用旧版 tasksched 的
+	# 「清理孤儿 plist」把 com.macpanel.agent / com.macpanel.server 当成
+	# 残留任务删掉（已在 tasksched 与 launchd.Installer.Remove 双侧修掉），
+	# 与打包无关。
 	cp "${PAYLOAD_ROOT}/Library/LaunchDaemons/${name}" "${SCRIPTS_DIR}/${name}"
 done
 
@@ -244,8 +247,6 @@ fi
 # 4. 写入 launchd 定义
 #
 # 冗余保险：保证 bootstrap 前文件一定存在且内容与模板一致。
-# 若装完后 plist 又消失，通常不是本应用的问题，而是第三方清理 / 启动项管理类
-# 工具在 launchd 注册之后删掉了它（本机实测为腾讯柠檬清理）。
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 install -m 0644 -o root -g wheel "${SCRIPT_DIR}/com.macpanel.agent.plist" \
 	/Library/LaunchDaemons/com.macpanel.agent.plist
@@ -259,14 +260,15 @@ launchctl bootout system /Library/LaunchDaemons/com.macpanel.server.plist 2>/dev
 launchctl bootstrap system /Library/LaunchDaemons/com.macpanel.agent.plist
 launchctl bootstrap system /Library/LaunchDaemons/com.macpanel.server.plist
 
-# 6. 自检：某些第三方工具会在 launchd 注册成功后把 plist 删掉，
-#    届时会表现为「安装一切正常、面板却打不开」，很难自查。这里显式报出来。
+# 6. 自检：若 plist 在注册后消失，会表现为「安装一切正常、面板却打不开」，
+#    且事后极难自查。这里显式报出来。
+#    已知历史原因：旧版 tasksched 的孤儿清理误删本应用自身服务（已修）。
+#    若再现，优先怀疑同类回归或第三方「清理 / 启动项管理」类工具。
 if [[ ! -f /Library/LaunchDaemons/com.macpanel.agent.plist ]]; then
 	echo "" >&2
 	echo "警告：LaunchDaemon 定义在注册后消失，服务不会随系统启动。" >&2
-	echo "      常见原因是第三方「清理 / 启动项管理」类工具（本机已知：腾讯柠檬清理）" >&2
-	echo "      在 launchd 注册后删除了它。请在对应工具里把 com.macpanel.* 加入白名单，" >&2
-	echo "      或暂时停用该工具后重新安装本包。" >&2
+	echo "      请检查：1) 本应用 tasksched 的孤儿清理是否再次删掉了自身服务；" >&2
+	echo "             2) 本机是否有第三方「清理 / 启动项管理」类工具在删除它。" >&2
 fi
 
 echo "安装完成。管理面板: http://127.0.0.1:7788"

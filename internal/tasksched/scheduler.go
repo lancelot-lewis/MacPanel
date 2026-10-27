@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -287,6 +288,13 @@ func (s *Scheduler) Sync(ctx context.Context) (SyncResult, error) {
 		res.Errors = append(res.Errors, fmt.Sprintf("列举已安装任务失败: %v", err))
 	}
 	for _, label := range managed {
+		// 本应用自身的 LaunchDaemon（com.macpanel.agent / com.macpanel.server）
+		// 与计划任务共用 LabelPrefix，但它们不是任务。少了这一层判断，
+		// 这段对账会把本应用自己的服务定义当成「孤儿」删掉 ——
+		// 结果是安装一切正常、plist 却在启动后消失，服务再也起不来。
+		if !isTaskLabel(label) {
+			continue
+		}
 		if wanted[label] {
 			continue
 		}
@@ -642,6 +650,14 @@ func (s *Scheduler) CheckMissed(ctx context.Context) error {
 // 文件名，也会让 label 随改名而变化（改名就得卸载重装）。
 func launcherLabel(taskID int64) string {
 	return fmt.Sprintf("%stask.%d", launchd.LabelPrefix, taskID)
+}
+
+// isTaskLabel 判断标签是否属于「计划任务」命名空间（com.macpanel.task.*）。
+//
+// 必须与 LabelPrefix 区分开：本应用自身的服务 com.macpanel.agent 与
+// com.macpanel.server 同样带 LabelPrefix，却不是任务，绝不能被对账逻辑删除。
+func isTaskLabel(label string) bool {
+	return strings.HasPrefix(label, launchd.LabelPrefix+"task.")
 }
 
 // taskIDFromLabel 从标签反解析任务 ID。解析失败返回 0。

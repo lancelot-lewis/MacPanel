@@ -233,6 +233,13 @@ func (i *Installer) Install(ctx context.Context, spec Spec) error {
 // 即使 bootout 失败也要继续删文件：多数情况下失败原因是「本来就没加载」，
 // 而残留文件才是真正的问题（下次开机会被自动加载）。
 func (i *Installer) Remove(ctx context.Context, label string) error {
+	// 安全边界：本应用自身的服务（com.macpanel.agent / com.macpanel.server）
+	// 与计划任务共用 LabelPrefix，但它们不是任务。这里直接拒绝，
+	// 让任何调用方都不可能误删本应用自己的 LaunchDaemon 定义。
+	if !strings.HasPrefix(label, LabelPrefix+"task.") {
+		return fmt.Errorf("launchd: 拒绝删除非任务 label %q", label)
+	}
+
 	path, err := i.plistPath(label)
 	if err != nil {
 		return err
