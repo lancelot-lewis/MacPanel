@@ -26,10 +26,16 @@
 ### 2.1 构建链路
 
 ```text
-make pkg   → MacPanel-0.1.0.pkg   5.9 MB
-make dmg   → MacPanel-0.1.0.dmg   6.0 MB
+make pkg   → MacPanel-<version>.pkg   5.9 MB
+make dmg   → MacPanel-<version>.dmg   6.0 MB
 make verify-pkg → 通过 30 项，警告 1 项，失败 0 项
 ```
+
+`<version>` 按此优先级决定：`MACPANEL_PKG_VERSION` 环境变量（CI 传 GitHub run number）
+> 最近的 git tag > `0.1.<commit count>`。
+
+**版本号必须每次递增，这一点是硬要求，不是洁癖**：同版本的两次安装会触发 macOS 的
+receipt-based obsoleting，实测会在安装完成后把 payload 里的文件删掉（详见第 4 节表格）。
 
 `make verify-pkg` 覆盖的检查项：
 
@@ -105,7 +111,7 @@ launchctl print system/com.macpanel.agent 2>&1 | head -3   # 期望：不存在
 id _macpanel                                                        # 期望：不存在
 
 # 2. 安装
-sudo installer -pkg MacPanel-0.1.0.pkg -target /
+sudo installer -pkg MacPanel-<version>.pkg -target /   # 文件名随版本号变化，见 2.1
 ```
 
 预期结果（逐条确认）：
@@ -138,7 +144,7 @@ sudo installer -pkg MacPanel-0.1.0.pkg -target /
 /usr/local/bin/macpanel version
 
 # 3. 安装同包第二遍（模拟升级）
-sudo installer -pkg MacPanel-0.1.0.pkg -target /
+sudo installer -pkg MacPanel-<version>.pkg -target /   # 文件名随版本号变化，见 2.1
 ```
 
 - [ ] `/Library/Application Support/MacPanel/backups/preupgrade-<时间戳>/` 生成
@@ -211,6 +217,8 @@ sudo macpanel-uninstall
 | 没有本地终端的防火墙回滚手段 | 面板回滚依赖 Server/IPC/Agent 四跳，失联时这条链正好断了 | 新增 `firewall status/rollback/unload`，刻意不经过 IPC |
 | Agent 崩溃后倒计时失效却无兜底 | `Rollback` 在 idle 时报错 | Manager 新增 `Unload`：与阶段无关地清空 anchor |
 | CLI 日志输出 `%!(EXTRA string=reason…)` | Logger 是 slog 风格 key/value，却用 `fmt.Sprintf` 展开 | 新增 `renderLogArgs` 渲染 `k=v`（附回归测试） |
+| **干净卸载后再重装，面板依旧起不来：`/Library/LaunchDaemons/` 里没有任何 plist** | 两次安装的版本号完全相同，macOS 触发 **receipt-based obsoleting**，会在安装完成后把 payload 里的文件删掉；而 `macpanel-uninstall` 从不清除收据，于是「卸载→重装」永远还是同版本覆盖 | 版本号强制递增（`MACPANEL_PKG_VERSION` > tag > 提交计数兜底），且卸载时 `pkgutil --forget com.macpanel` |
+| **升级前备份只增不减，磁盘慢慢被吃光** | `preinstall` 用 `head -n -"${KEEP}"` 保留最近 KEEP 份，负行数是 GNU 专有语法，macOS 的 BSD head 报 `illegal line count -- -5` 后整段静默失败 | 改为 `sort -r \| tail -n +"$((KEEP + 1))"`，BSD / GNU 都成立 |
 | BOM 里有 9 条 `._xxx` AppleDouble | macOS 给本地文件写 `com.apple.provenance`（内核合成，删不掉），pkgbuild 为其生成 AppleDouble | 尽力清除 xattr；卸载时顺手清理；`verify-pkg` 将其列为**警告**并说明原因 |
 
 ---

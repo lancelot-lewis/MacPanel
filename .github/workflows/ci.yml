@@ -61,6 +61,11 @@ jobs:
       # 以下仅在 push 到 main 时执行。
       - name: Package (unsigned PKG)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        # 版本号用 run_number 保证每次构建都递增：同版本覆盖安装会触发 macOS 的
+        # receipt-based obsoleting，实测会在安装完成后把 payload 里的文件删掉
+        # （launchd plist 消失 → 服务起不来）。递增后走的是正常升级路径。
+        env:
+          MACPANEL_PKG_VERSION: 0.1.${{ github.run_number }}
         run: make pkg
 
       - name: Verify PKG structure

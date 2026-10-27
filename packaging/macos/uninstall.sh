@@ -68,6 +68,20 @@ if [[ "$(id -u)" -ne 0 ]]; then
 	exit 1
 fi
 
+# 放在最前面：即使后面某步被 Ctrl-C 中断，收据也已经清掉。
+#
+# 为什么必须 forget 收据：不清的话，下一次安装持有的仍是同版本收据，
+# macOS 会判定为「同版本覆盖安装」并做 receipt-based obsoleting ——
+# 实测会在安装完成后把 payload 里的文件删掉，导致 launchd plist 消失、
+# 服务完全起不来，而 `pkgutil --files` 依然显示「已安装」，极难排查。
+# 清掉收据后重新安装走的是全新安装路径，不会再触发这个行为。
+echo "==> 清理安装收据"
+if pkgutil --forget com.macpanel 2>/dev/null; then
+	echo "    已遗忘 com.macpanel 收据（下次安装将视为全新安装）"
+else
+	echo "    无收据记录（跳过）"
+fi
+
 ask() {
 	# $1: 提示语  $2: 默认动作的取值（用于非交互）
 	local prompt="$1" default="$2"

@@ -22,12 +22,23 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build"
 IDENTIFIER="com.macpanel"
 
-# 版本号：优先用 git tag；没有 tag 时用固化的语义化版本，
-# 避免安装包版本号变成一串提交哈希。
-if TAG="$(cd "${REPO_ROOT}" && git describe --tags --abbrev=0 2>/dev/null)"; then
+# 版本号优先级：环境变量 override（CI 传入） > git tag > 递增兜底。
+#
+# 为什么必须保证「每次构建的版本号都不同」而不是固化成一个常数：
+#   1. 版本号完全相同的两次安装会触发 macOS 的 receipt-based obsoleting，
+#      实测会在安装完成后把 payload 里的文件删掉 —— plist 消失 → launchd 无事可做
+#      → 面板不通，而且 `pkgutil --files` 仍然显示「已安装」，极难排查。
+#   2. 版本号递增时，installer 走的是正常升级路径，不会触发上述行为。
+#   3. 顺带让每个构建的产物文件名可区分，不用依赖外部检索 git commit。
+#
+# 没有 tag 时的兜底用提交计数而不是时间戳：同一仓库内单调递增，
+# 后一次构建一定大于前一次，因此每次安装都是「升级」而非「同版本覆盖」。
+if [[ -n "${MACPANEL_PKG_VERSION:-}" ]]; then
+	VERSION="${MACPANEL_PKG_VERSION}"
+elif TAG="$(cd "${REPO_ROOT}" && git describe --tags --abbrev=0 2>/dev/null)"; then
 	VERSION="${TAG#v}"
 else
-	VERSION="0.1.0"
+	VERSION="0.1.$(cd "${REPO_ROOT}" && git rev-list --count HEAD 2>/dev/null || echo 0)"
 fi
 
 BINARY="${REPO_ROOT}/bin/macpanel"
@@ -132,7 +143,11 @@ echo "已备份到 ${BACKUP_DIR}"
 
 # 4. 只保留最近 KEEP 份，避免每次升级都留一份把磁盘慢慢吃光
 if ls -1d "${BACKUP_ROOT}"/preupgrade-* >/dev/null 2>&1; then
-	ls -1d "${BACKUP_ROOT}"/preupgrade-* | sort | head -n -"${KEEP}" | while read -r old; do
+	# 用 sort -r + tail -n +N，不要用 GNU 的 head -n -N：
+	# macOS 自带 BSD head 不支持负数行数，会报 "illegal line count"，
+	# 结果是这段清理逻辑每次都静默失败，备份目录无限增长。
+	# 反过来（最新的排前面、跳过前 KEEP 个）在 BSD / GNU 上都成立。
+	ls -1d "${BACKUP_ROOT}"/preupgrade-* | sort -r | tail -n +"$((KEEP + 1))" | while read -r old; do
 		rm -rf "${old}"
 		echo "已清理旧备份 $(basename "${old}")"
 	done
