@@ -1,0 +1,79 @@
+name: CI
+
+# 在推送到 main 与所有 PR 时运行：编译出 Apple Silicon（darwin/arm64）二进制并上传为制品，
+# 同时跑 lint / test / 前端类型检查，保证每次提交都可编译、可测试。
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (darwin/arm64)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 让 make build 里的 git describe 能拿到 tag / 历史以注入版本号
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build
+        # 原生 darwin/arm64 构建：本项目是 macOS 专属（internal/platform/darwin 仅在 darwin 下编译），
+        # 且二进制内嵌前端产物，必须在 macOS runner 上原生编译。
+        run: make build
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: macpanel-darwin-arm64
+          path: bin/macpanel
+          if-no-files-found: error
+
+  test:
+    name: Lint & Test
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Check (lint + test + web typecheck)
+        run: make check

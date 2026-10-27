@@ -141,6 +141,16 @@ make dev-server      # 终端 1：后端 7788
 make web-dev         # 终端 2：Vite 5173，/api 自动代理到 7788
 ```
 
+## 持续集成 (CI)
+
+仓库内置 GitHub Actions（`.github/workflows/ci.yml`），在每次推送到 `main` 和所有 PR 上运行：
+
+- **Build**：在 `macos-latest` 上原生编译 **darwin/arm64**（Apple Silicon）二进制，并上传为制品 `macpanel-darwin-arm64`。
+  本项目是 macOS 专属（`internal/platform/darwin` 仅在 darwin 下编译），且二进制内嵌前端产物，故必须在 macOS runner 上原生构建。
+- **Lint & Test**：运行 `make check`（go vet + go test + 前端类型检查）。
+
+> 仅编译、不需要测试时，删除 `test` job 即可；`macos-latest` 需要 GitHub 的 macOS 运行器（公开仓库默认可用）。
+
 ## 打包与安装
 
 ```bash
