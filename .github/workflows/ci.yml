@@ -1,7 +1,18 @@
 name: CI
 
-# 在推送到 main 与所有 PR 时运行：编译出 Apple Silicon（darwin/arm64）二进制并上传为制品，
-# 同时跑 lint / test / 前端类型检查，保证每次提交都可编译、可测试。
+# 目标平台：darwin/arm64（Apple Silicon）。本项目是 macOS 专属
+# （internal/platform/darwin 仅在 darwin 下编译），且二进制内嵌前端产物，
+# 因此必须在 macOS runner 上原生构建。
+#
+# 触发与产物：
+#   PR           → 只做编译（make build）+ 检查（make check），不产安装包
+#   push 到 main → 额外构建未签名 PKG，并以 artifact 交付（文件名带短 SHA）
+#
+# 为什么不再单独上传裸二进制：裸二进制会把人推进 dev 路径（手工 token / agent / server，
+# 且非 root 下 PF、计划重启、launchd 全部残废）。能安装的安装包才是真实使用形态。
+#
+# 为什么是单 job 而不是 build / test 两个并行：两者都要跑 npm ci + 前端构建，
+# macOS 分钟数按 Linux 的倍数计费，拆开等于把最贵的一段烧两遍。
 on:
   push:
     branches: [main]
@@ -12,14 +23,14 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build (darwin/arm64)
+  ci:
+    name: Build & Test & Package
     runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # 让 make build 里的 git describe 能拿到 tag / 历史以注入版本号
+          # 让 git describe 能拿到 tag / 历史以注入版本号
           fetch-depth: 0
 
       - name: Set up Go
@@ -40,45 +51,33 @@ jobs:
         run: npm ci
 
       - name: Build
-        # 原生 darwin/arm64 构建：本项目是 macOS 专属（internal/platform/darwin 仅在 darwin 下编译），
-        # 且二进制内嵌前端产物，必须在 macOS runner 上原生编译。
+        # 先构建前端生成 web/dist 再编译二进制：web 包用 //go:embed all:dist 内嵌产物，
+        # 缺 dist 时 go 在编译期就报 "pattern all:dist: no matching files found"。
         run: make build
-
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: macpanel-darwin-arm64
-          path: bin/macpanel
-          if-no-files-found: error
-
-  test:
-    name: Lint & Test
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.27.3'
-          cache: true
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: web/package-lock.json
-
-      - name: Install frontend dependencies
-        working-directory: web
-        run: npm ci
-
-      # web 包用 //go:embed all:dist 内嵌前端产物，go vet/test 编译期就要求 web/dist 存在，
-      # 所以必须在 make check 前先构建前端（build job 同理，它走的是 make build）。
-      - name: Build frontend
-        run: make web-build
 
       - name: Check (lint + test + web typecheck)
         run: make check
+
+      # 以下仅在 push 到 main 时执行。
+      - name: Package (unsigned PKG)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: make pkg
+
+      - name: Verify PKG structure
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: make verify-pkg
+
+      - name: Resolve artifact name
+        id: meta
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        # 没有 tag 时 build-pkg.sh 把版本号固化为 0.1.0，所有构建同名、无法区分，
+        # 因此把短 SHA 放进 artifact 名（真正的溯源依据是 `macpanel version`）。
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload PKG artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacPanel-${{ steps.meta.outputs.short }}-arm64
+          path: MacPanel-*.pkg
+          if-no-files-found: error

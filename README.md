@@ -143,13 +143,26 @@ make web-dev         # 终端 2：Vite 5173，/api 自动代理到 7788
 
 ## 持续集成 (CI)
 
-仓库内置 GitHub Actions（`.github/workflows/ci.yml`），在每次推送到 `main` 和所有 PR 上运行：
+仓库内置 GitHub Actions（`.github/workflows/ci.yml`），在 macOS 运行器上原生构建 **darwin/arm64**
+（Apple Silicon）。本项目是 macOS 专属（`internal/platform/darwin` 仅在 darwin 下编译），且二进制内嵌
+前端产物，故只能在 macOS 运行器上构建。
 
-- **Build**：在 `macos-latest` 上原生编译 **darwin/arm64**（Apple Silicon）二进制，并上传为制品 `macpanel-darwin-arm64`。
-  本项目是 macOS 专属（`internal/platform/darwin` 仅在 darwin 下编译），且二进制内嵌前端产物，故必须在 macOS runner 上原生构建。
-- **Lint & Test**：运行 `make check`（go vet + go test + 前端类型检查）。
+单 job 串行执行，**所有触发都会跑**：
 
-> 仅编译、不需要测试时，删除 `test` job 即可；`macos-latest` 需要 GitHub 的 macOS 运行器（公开仓库默认可用）。
+1. `make build` —— 编译。先构建前端生成 `web/dist`，再编译二进制（`//go:embed` 需要它存在）。
+2. `make check` —— `go vet` + `go test` + 前端类型检查。
+
+**仅 push 到 `main` 时额外跑**（PR 不产安装包，省 macOS 分钟数）：
+
+3. `make pkg` + `make verify-pkg` —— 构建**未签名**的 PKG 并静态校验结构。
+4. 上传制品，名称形如 `MacPanel-<短SHA>-arm64`，内容是可安装的 PKG。
+
+> CI **不再单独提供裸二进制制品**：它会被误当成可用形态，把人推进 dev 路径（手工 token / agent / server，
+> 且非 root 下 PF、计划重启、launchd 均不可用）。请直接下载 PKG 安装，安装绿灯之后所有服务由 launchd 自动拉起。
+>
+> 未签名意味着 Gatekeeper 会拦截，安装前需 `xattr -d com.apple.quarantine` 或在「系统设置 → 隐私与安全性」
+> 点「仍要打开」——这是一次性动作。签名与公证需要每年 99 美元的 Apple Developer Program 会员资格，
+> 个人自用不必付这笔钱。
 
 ## 打包与安装
 
