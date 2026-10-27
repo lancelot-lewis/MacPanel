@@ -287,6 +287,7 @@ func runAgent(args []string) error {
 		SocketPath:      cfg.SocketPath,
 		Token:           token,
 		AllowedPeerUIDs: cfg.AllowedPeerUIDs,
+		SocketGID:       cfg.SocketGID,
 		Logger:          log,
 		Timeout:         cfg.IPCTimeout,
 	})

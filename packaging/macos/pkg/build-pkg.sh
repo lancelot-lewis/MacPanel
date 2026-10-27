@@ -263,13 +263,15 @@ install -m 0644 -o root -g wheel "${SCRIPT_DIR}/com.macpanel.server.plist" \
 # 少了这一步，面板能打开但所有状态接口都返回 500（「调用方身份不受信任」）。
 # UID 是安装时动态分配的，所以只能在安装时替换，不能写死在模板里。
 SERVER_UID="$(dscl . -read /Users/_macpanel UniqueID 2>/dev/null | awk '{print $2}')"
-if [[ -z "${SERVER_UID}" ]]; then
-	echo "错误: 无法确定 _macpanel 的 UID" >&2
+SERVER_GID="$(dscl . -read /Groups/_macpanel PrimaryGroupID 2>/dev/null | awk '{print $2}')"
+if [[ -z "${SERVER_UID}" || -z "${SERVER_GID}" ]]; then
+	echo "错误: 无法确定 _macpanel 的 UID/GID" >&2
 	exit 1
 fi
-/usr/bin/sed -i '' "s|__SERVER_UID__|${SERVER_UID}|g" /Library/LaunchDaemons/com.macpanel.agent.plist
-if grep -q "__SERVER_UID__" /Library/LaunchDaemons/com.macpanel.agent.plist; then
-	echo "错误: Agent plist 中的 __SERVER_UID__ 未被替换" >&2
+/usr/bin/sed -i '' -e "s|__SERVER_UID__|${SERVER_UID}|g" -e "s|__SERVER_GID__|${SERVER_GID}|g" \
+	/Library/LaunchDaemons/com.macpanel.agent.plist
+if grep -q "__SERVER_" /Library/LaunchDaemons/com.macpanel.agent.plist; then
+	echo "错误: Agent plist 中仍有未替换的占位符" >&2
 	exit 1
 fi
 plutil -lint /Library/LaunchDaemons/com.macpanel.agent.plist >/dev/null

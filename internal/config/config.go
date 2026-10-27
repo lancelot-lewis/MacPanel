@@ -85,6 +85,14 @@ type Config struct {
 	// Agent 自身 euid 与 Server 的 euid 始终允许。空表示只信任本进程 euid。
 	AllowedPeerUIDs []uint32
 
+	// SocketGID 是 Agent Socket 文件的属组。非 0 时把 Socket 的组改成它。
+	//
+	// 为什么必须能改：Socket 由 root 创建，默认继承 root:wheel 且权限 0660。
+	// Server 以 _macpanel 运行，而它不在 wheel 组里，others 位是 ---，
+	// 结果是「连不上 Socket」——目录权限正确也没用，因为卡在 socket 文件上。
+	// Socket 每次启动都会重建，所以只能在代码里改，不能靠安装脚本补一次。
+	SocketGID uint32
+
 	// ServeWeb 表示是否由 Server 提供内嵌前端资源。
 	ServeWeb bool
 }
@@ -122,6 +130,13 @@ func LoadFromEnv(mode Mode) (Config, error) {
 	}
 	if v := os.Getenv("MACPANEL_PUBLIC_HOSTS"); v != "" {
 		cfg.PublicHosts = splitAndTrim(v)
+	}
+	if v := os.Getenv("MACPANEL_SOCKET_GID"); v != "" {
+		gid, err := strconv.ParseUint(v, 10, 32)
+		if err != nil {
+			return cfg, fmt.Errorf("MACPANEL_SOCKET_GID 不是合法 GID: %w", err)
+		}
+		cfg.SocketGID = uint32(gid)
 	}
 	if v := os.Getenv("MACPANEL_ALLOWED_PEER_UIDS"); v != "" {
 		uids, err := parseUIDList(v)

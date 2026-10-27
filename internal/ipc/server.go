@@ -27,6 +27,7 @@ type Server struct {
 	socketPath string
 	token      *config.Token
 	allowedUID []uint32
+	socketGID  uint32
 	log        *slog.Logger
 	timeout    time.Duration
 
@@ -48,8 +49,11 @@ type ServerOptions struct {
 	SocketPath      string
 	Token           *config.Token
 	AllowedPeerUIDs []uint32
-	Logger          *slog.Logger
-	Timeout         time.Duration
+	// SocketGID 非 0 时把 Socket 文件的组改成它，使该组成员能连接。
+	// 默认继承 root:wheel 0660，非 wheel 的 Server 账户连不上。
+	SocketGID uint32
+	Logger    *slog.Logger
+	Timeout   time.Duration
 }
 
 // NewServer 创建 IPC 服务端。不会打开 Socket。
@@ -70,6 +74,7 @@ func NewServer(opts ServerOptions) (*Server, error) {
 		socketPath: opts.SocketPath,
 		token:      opts.Token,
 		allowedUID: opts.AllowedPeerUIDs,
+		socketGID:  opts.SocketGID,
 		log:        opts.Logger,
 		timeout:    opts.Timeout,
 		handlers:   make(map[string]Handler),
@@ -133,6 +138,15 @@ func (s *Server) Listen() error {
 	if err := os.Chmod(s.socketPath, 0o660); err != nil {
 		ln.Close()
 		return fmt.Errorf("ipc: 设置 Socket 权限失败: %w", err)
+	}
+	// 0660 只放行「属主」与「属组」。Socket 由 root 创建，组默认是 wheel，
+	// 而 Server 跑在 _macpanel（不在 wheel 组），不换组就永远连不上。
+	// -1 表示不改属主。
+	if s.socketGID != 0 {
+		if err := os.Chown(s.socketPath, -1, int(s.socketGID)); err != nil {
+			ln.Close()
+			return fmt.Errorf("ipc: 设置 Socket 属组失败: %w", err)
+		}
 	}
 	s.listener = ln
 	return nil

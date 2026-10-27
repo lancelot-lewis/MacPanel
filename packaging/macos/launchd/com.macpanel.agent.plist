@@ -44,6 +44,12 @@
 		-->
 		<key>MACPANEL_ALLOWED_PEER_UIDS</key>
 		<string>__SERVER_UID__</string>
+		<!--
+			Agent 把 Socket 文件（0660，root 创建）的属组改成这个 GID，
+			否则 _macpanel 组的 Server 连不上 Socket（默认组是 wheel）。
+		-->
+		<key>MACPANEL_SOCKET_GID</key>
+		<string>__SERVER_GID__</string>
 	</dict>
 
 	<key>RunAtLoad</key>
