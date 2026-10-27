@@ -285,3 +285,40 @@ sudo macpanel-uninstall [--yes|--purge]   # 随包安装
 
 干净系统安装 → 升级与备份恢复 → 卸载 → PF 真实加载 → 真实重启与 launchd 触发。
 清单见 `docs/m5-acceptance.md` 第 3 节。**no root 环境下的任何静态检查都不能替代它。**
+
+## CI（2026-10-28 新增）
+
+`.github/workflows/ci.yml`：单 job，`macos-latest`，原生 darwin/arm64（用户确认只要 Apple Silicon）。
+所有触发跑 `make build` + `make check`；**仅 push 到 main** 才 `make pkg` + `make verify-pkg` + 上传制品。
+刻意不上传裸二进制制品（会把人推进 dev 三连体验）。
+单 job 而非 build/test 并行：两者都要跑 npm ci + 前端构建，macOS 分钟数按 Linux 倍数计费。
+
+## 安装包版本号必须递增（实机踩出来的硬约束）
+
+**同版本（如 `0.1.0`）覆盖安装会触发 macOS receipt-based obsoleting，在安装收尾时把 payload
+里的文件删掉** —— 表现为 `pkgutil --files` 说装了、磁盘上没有、服务完全起不来，极难查。
+而 `uninstall.sh` 若不 `pkgutil --forget` 收据，「卸载→重装」永远仍是同版本覆盖，必然复现。
+
+优先级：`MACPANEL_PKG_VERSION`（CI 传 run_number）> 最近 git tag > `0.1.<提交计数>`。
+卸载脚本已在**最开头** forget 收据（放最前：中断也能留下干净状态）。
+
+## macOS shell 陷阱（补一条）
+
+`head -n -N`（负行数）是 **GNU 专有**，macOS 的 BSD head 报 `illegal line count` 后整段静默失败。
+保留最近 N 份要用：`sort -r | tail -n +"$((N + 1))"`。
+此前同类：`arr[-1]`（bash 3.2 不支持）、`launchctl list`（macOS 27 返回空 + 退出码 1，要用 `launchctl print system`）。
+
+## 排查 pkg 安装问题三件套
+
+1. `pkgutil --files <id>` —— 收据**认为**装了什么
+2. `ls <目标目录>` —— 磁盘上**实际**有什么
+3. `lsbom -pf <展开 pkg>/component.pkg/Bom` —— **包里到底有没有**（区分「打包漏文件」与「装完被删」）
+
+外加 `/var/log/install.log` 搜包 id，能看到 preinstall/postinstall 的逐行输出。
+注意：**postinstall 有 `set -euo pipefail`，只要它打印到了结尾那几行，就说明中途没有命令失败。**
+
+## root 的边界（用户已认可现状，暂不改）
+
+PF 写规则 / 定时重启 / launchd 系统域服务**必须 root，且与「是否需要在注销后常驻」完全无关**。
+不要因为用户说「我只在登录后管理」就以为能去掉 root。
+若将来介意常驻，正解是 launchd socket activation，而不是降权。
