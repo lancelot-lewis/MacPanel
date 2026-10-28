@@ -7,7 +7,7 @@
 //	status   通过 CLI 查询 Agent 状态（不需要浏览器）
 //	firewall 防火墙状态与本地回滚（不依赖 Agent 与浏览器，用于网络失联时救援）
 //	token    生成 / 安装 IPC 共享令牌（安装器与本地开发用）
-//	config   打印生效配置（排查配置问题）
+//	config   查看 / 修改持久化配置（server.conf）
 //	version  打印版本
 //	task-run 由 launchd 触发的计划任务入口（非交互 humans 勿用）
 package main
@@ -20,7 +20,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"os/user"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -94,13 +97,20 @@ func printUsage() {
   agent       启动 Root 特权 Agent（提供 Unix Socket RPC）
   status      查询 Agent 状态（命令行方式，无需浏览器）
   token       生成并写入 IPC 共享令牌
-  config      打印生效配置并校验
+  config      查看 / 修改持久化配置（server.conf）
   version     打印版本信息
   firewall    防火墙状态查看与本地回滚（不经 IPC，救援用）
 
-环境变量:
+config 用法:
+  macpanel config                              打印生效配置（含配置文件路径）
+  macpanel config set listen 0.0.0.0:7788      监听所有网卡（自动开启 allow_remote）
+  macpanel config set allow-remote true        允许非回环访问
+  macpanel config unset listen                  删除该项，回落默认值
+  改完需重启服务：sudo launchctl kickstart -k system/com.macpanel.server
+
+环境变量（优先级高于配置文件）:
   MACPANEL_LISTEN_ADDR        监听地址，默认 127.0.0.1:7788
-  MACPANEL_ALLOW_REMOTE       是否允许远程访问（true/false，默认 false）
+  MACPANEL_ALLOW_REMOTE       是否允许非回环访问（true/false，默认 false）
   MACPANEL_SOCKET_PATH        Agent Socket 路径
   MACPANEL_TOKEN_PATH         IPC 令牌文件路径
   MACPANEL_DATA_DIR           数据目录（SQLite）
@@ -109,6 +119,11 @@ func printUsage() {
   MACPANEL_ALLOWED_PEER_UIDS  额外允许的 IPC 对端 UID（逗号分隔）
   MACPANEL_LOG_LEVEL          日志级别（debug/info/warn/error）
   MACPANEL_USE_FAKE_COLLECTOR 设为 1 时使用模拟采集器（仅用于开发/演示）
+
+配置文件:
+  /Library/Application Support/MacPanel/server.conf 保存监听地址与远程访问开关。
+  pkg 升级不会覆盖它。开启非回环监听后，所有访问（含本机）都需要登录，
+  因此必须先在本机设置管理密码。
 `)
 }
 
@@ -158,6 +173,22 @@ func runServer(args []string) error {
 
 	authMgr := auth.NewManager(db)
 	auditStore := audit.NewStore(db, log)
+
+	// 监听非回环地址时，把「从哪进」和「能不能登进来」写进日志。
+	// 这两个坑都只能靠日志暴露：面板打不开时用户看不到 UI 提示，
+	// 而未设密码时页面能打开、登录必然失败。
+	if !cfg.IsLoopbackListen() {
+		if url := cfg.LoopbackURL(); url != "" {
+			log.Warn("监听非回环地址，所有访问（含本机）都需要登录",
+				"addr", cfg.NormalizedListenAddr(), "localURL", url)
+		} else {
+			log.Warn("监听非回环地址且不含回环，127.0.0.1 不可用",
+				"addr", cfg.NormalizedListenAddr())
+		}
+		if has, err := authMgr.HasPassword(context.Background()); err == nil && !has {
+			log.Warn("尚未设置管理密码：远程访问无法登录，请先在本机打开面板完成初始密码设置")
+		}
+	}
 
 	webFS, webErr := web.DistFS()
 	if webErr != nil {
@@ -210,6 +241,10 @@ func runServer(args []string) error {
 		log.Info("收到退出信号，正在关闭")
 	case err := <-errCh:
 		if err != nil {
+			if !cfg.IsLoopbackListen() && !cfg.IsWildcardListen() {
+				return fmt.Errorf("HTTP 服务异常退出: %w（监听 %s；地址不存在会导致 bind 失败，"+
+					"可用 macpanel config set listen 修改）", err, cfg.NormalizedListenAddr())
+			}
 			return fmt.Errorf("HTTP 服务异常退出: %w", err)
 		}
 	}
@@ -510,9 +545,22 @@ func runToken(args []string) error {
 func runConfig(args []string) error {
 	fs := flag.NewFlagSet("config", flag.ContinueOnError)
 	mode := fs.String("mode", "server", "server 或 agent")
-	devMode := fs.Bool("dev", false, "开发模式")
+	devMode := fs.Bool("dev", false, "开发模式：读写 ./.dev 下的配置")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+
+	// 子命令在标志之后：macpanel config [-dev] [show|set|unset] ...
+	if rest := fs.Args(); len(rest) > 0 {
+		switch rest[0] {
+		case "set":
+			return runConfigSet(*devMode, rest[1:])
+		case "unset":
+			return runConfigUnset(*devMode, rest[1:])
+		case "show":
+		default:
+			return fmt.Errorf("未知 config 子命令 %q（支持 show / set / unset）", rest[0])
+		}
 	}
 
 	m := config.ModeServer
@@ -525,8 +573,10 @@ func runConfig(args []string) error {
 	}
 	return printJSON(map[string]any{
 		"mode":            cfg.Mode,
+		"configFile":      cfg.ConfigFile,
 		"listenAddr":      cfg.NormalizedListenAddr(),
 		"allowRemote":     cfg.AllowRemote,
+		"loopbackURL":     cfg.LoopbackURL(),
 		"socketPath":      cfg.SocketPath,
 		"tokenPath":       cfg.TokenPath,
 		"dataDir":         cfg.DataDir,
@@ -538,11 +588,189 @@ func runConfig(args []string) error {
 	})
 }
 
+// serverConfPath 返回要读写的 server.conf 路径。
+func serverConfPath(dev bool) (string, error) {
+	if !dev {
+		return config.SystemServerConfPath, nil
+	}
+	base, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, ".dev", "server.conf"), nil
+}
+
+// runConfigSet 修改并持久化一项 server.conf 配置。
+//
+// 只改文件、不重启服务：重启由用户显式执行，避免「敲完命令服务突然断开」
+// 这种难以归因的行为（尤其当用户正通过局域网访问面板时）。
+func runConfigSet(dev bool, argv []string) error {
+	if len(argv) < 2 {
+		return errors.New("用法: macpanel config set <listen|allow-remote|public-hosts> <值>")
+	}
+	key := argv[0]
+	value := strings.Join(argv[1:], " ")
+
+	path, err := serverConfPath(dev)
+	if err != nil {
+		return err
+	}
+	vals, err := config.ParseConfigFile(path)
+	if err != nil {
+		return err
+	}
+
+	autoRemote := false
+	switch key {
+	case "listen":
+		// 先只校验地址格式（allowRemote 传 true 表示「不在这里判断远程开关」）。
+		if err := config.ValidateListenAddr(value, true); err != nil {
+			return err
+		}
+		vals.Listen = value
+		// 非回环监听必须同时开 allow_remote，否则启动直接失败。
+		// 这里自动打开并明确告知，比让用户先撞一次启动错误更省事。
+		if !config.IsLoopbackAddr(value) && (vals.AllowRemote == nil || !*vals.AllowRemote) {
+			on := true
+			vals.AllowRemote = &on
+			autoRemote = true
+		}
+	case "allow-remote":
+		b, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("allow-remote 只接受 true 或 false，收到 %q", value)
+		}
+		vals.AllowRemote = &b
+	case "public-hosts":
+		vals.PublicHosts = splitHostList(value)
+	default:
+		return fmt.Errorf("未知配置项 %q（支持 listen / allow-remote / public-hosts）", key)
+	}
+
+	return writeServerConf(path, vals, autoRemote)
+}
+
+// runConfigUnset 删除一项配置，使其回落到默认值。
+func runConfigUnset(dev bool, argv []string) error {
+	if len(argv) < 1 {
+		return errors.New("用法: macpanel config unset <listen|allow-remote|public-hosts>")
+	}
+	key := argv[0]
+
+	path, err := serverConfPath(dev)
+	if err != nil {
+		return err
+	}
+	vals, err := config.ParseConfigFile(path)
+	if err != nil {
+		return err
+	}
+
+	switch key {
+	case "listen":
+		vals.Listen = ""
+	case "allow-remote":
+		vals.AllowRemote = nil
+	case "public-hosts":
+		vals.PublicHosts = nil
+	default:
+		return fmt.Errorf("未知配置项 %q（支持 listen / allow-remote / public-hosts）", key)
+	}
+	return writeServerConf(path, vals, false)
+}
+
+// writeServerConf 校验并落盘，然后打印生效所需的手动步骤。
+func writeServerConf(path string, vals config.FileValues, autoRemote bool) error {
+	// 用真实配置跑一遍校验：不合法就拒绝写入，避免留下
+	// 「文件写好了但服务起不来」这种只能靠读日志才能发现的状态。
+	check := config.Defaults()
+	check.Mode = config.ModeServer
+	if vals.Listen != "" {
+		check.ListenAddr = vals.Listen
+	}
+	if vals.AllowRemote != nil {
+		check.AllowRemote = *vals.AllowRemote
+	}
+	if vals.PublicHosts != nil {
+		check.PublicHosts = vals.PublicHosts
+	}
+	if err := check.Validate(); err != nil {
+		return err
+	}
+
+	if err := config.WriteConfigFile(path, vals); err != nil {
+		return err
+	}
+	_ = os.Chmod(path, 0o640)
+	fixConfigOwnership(path)
+
+	fmt.Printf("已写入 %s\n", path)
+	if autoRemote {
+		fmt.Println("已同时开启 allow_remote（监听非回环地址的必要条件）。")
+	}
+
+	if !check.IsLoopbackListen() {
+		fmt.Println()
+		fmt.Println("注意：远程访问要求登录，所有请求（含本机）都必须先登录。")
+		if url := check.LoopbackURL(); url != "" {
+			fmt.Printf("      尚未设置管理密码时，请先在本机打开 %s 完成设置。\n", url)
+		} else {
+			fmt.Println("      ⚠ 该地址不含回环，本机将无法通过 127.0.0.1 访问。")
+			fmt.Println("        若尚未设置管理密码，改完会同时失去「本机设置初始密码」的入口。")
+			fmt.Printf("        需要回滚：sudo macpanel config set listen 127.0.0.1:7788\n")
+		}
+	}
+
+	fmt.Println()
+	fmt.Println("重启服务使其生效：")
+	fmt.Println("  sudo launchctl kickstart -k system/com.macpanel.server")
+	return nil
+}
+
+// fixConfigOwnership 把配置文件的属组改为 _macpanel。
+//
+// Server 以 _macpanel 运行，需要读这个文件；root 写出来的文件属组是 wheel，
+// 只设权限位是 0640 也不够。与 ipc.token 是同一类问题。
+func fixConfigOwnership(path string) {
+	if os.Geteuid() != 0 {
+		return
+	}
+	g, err := user.LookupGroup("_macpanel")
+	if err != nil {
+		return
+	}
+	gid, err := strconv.Atoi(g.Gid)
+	if err != nil {
+		return
+	}
+	if err := os.Chown(path, 0, gid); err != nil {
+		fmt.Printf("警告: 无法把 %s 的属组改为 _macpanel: %v\n", path, err)
+	}
+}
+
+func splitHostList(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // ---- helpers ----
 
 // loadConfig 加载配置；dev 模式下把路径改到当前目录的 .dev 下。
+//
+// 配置文件优先于默认值、低于环境变量：监听地址这类「用户设定且必须
+// 在 pkg 升级后保留」的值放文件里，plist 只保留不随用户意图变化的环境。
 func loadConfig(mode config.Mode, dev bool) (config.Config, error) {
-	cfg, err := config.LoadFromEnv(mode)
+	confPath, err := serverConfPath(dev)
+	if err != nil {
+		return config.Config{}, err
+	}
+	cfg, err := config.Load(config.LoadOptions{Mode: mode, ConfigFile: confPath})
 	if err != nil {
 		return cfg, err
 	}

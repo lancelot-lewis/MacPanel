@@ -32,8 +32,13 @@ const (
 	SystemRunDir     = "/var/run/macpanel"
 	SystemSocketPath = SystemRunDir + "/agent.sock"
 	SystemTokenPath  = SystemConfigDir + "/ipc.token"
-	SystemAnchorName = "com.macpanel.ipv6"
-	SystemAnchorPath = "/etc/pf.anchors/" + SystemAnchorName
+	// SystemServerConfPath 保存监听地址与远程访问开关。
+	//
+	// 刻意不放在 launchd plist 里：plist 由 postinstall 每次按模板重写，
+	// 用户改过的监听地址会在升级时丢失；而 pkg 升级不应覆盖用户配置。
+	SystemServerConfPath = SystemConfigDir + "/server.conf"
+	SystemAnchorName     = "com.macpanel.ipv6"
+	SystemAnchorPath     = "/etc/pf.anchors/" + SystemAnchorName
 	// SystemPFConfPath 是 PF 主规则集配置。
 	// 应用规则前要确认它引用了本应用的 anchor —— 未引用时规则不会被评估。
 	SystemPFConfPath = "/etc/pf.conf"
@@ -102,14 +107,62 @@ type Config struct {
 
 	// ServeWeb 表示是否由 Server 提供内嵌前端资源。
 	ServeWeb bool
+
+	// ConfigFile 是本进程实际读取的配置文件路径（仅用于诊断输出）。
+	// 为空表示没有配置文件，全部取值来自环境变量与默认值。
+	ConfigFile string
 }
 
-// LoadFromEnv 在 Defaults 基础上叠加 MACPANEL_* 环境变量，然后执行校验。
-func LoadFromEnv(mode Mode) (Config, error) {
-	cfg := Defaults()
-	cfg.Mode = mode
-	cfg.ServeWeb = true
+// LoadOptions 描述一次配置加载。
+type LoadOptions struct {
+	Mode Mode
+	// ConfigFile 是 server.conf 路径，为空表示跳过文件。
+	ConfigFile string
+}
 
+// Load 按「默认值 → 配置文件 → 环境变量」的顺序叠加，最后执行校验。
+//
+// 环境变量优先级最高：临时改一个值做排障时不必动文件；而常驻配置放文件里，
+// 因为它能在 pkg 升级后存活。
+func Load(opts LoadOptions) (Config, error) {
+	cfg := Defaults()
+	cfg.Mode = opts.Mode
+	cfg.ServeWeb = true
+	cfg.ConfigFile = opts.ConfigFile
+
+	if opts.ConfigFile != "" {
+		fv, err := ParseConfigFile(opts.ConfigFile)
+		if err != nil {
+			return cfg, err
+		}
+		if fv.Listen != "" {
+			cfg.ListenAddr = fv.Listen
+		}
+		if fv.AllowRemote != nil {
+			cfg.AllowRemote = *fv.AllowRemote
+		}
+		if fv.PublicHosts != nil {
+			cfg.PublicHosts = fv.PublicHosts
+		}
+	}
+
+	if err := applyEnvOverrides(&cfg); err != nil {
+		return cfg, err
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+// LoadFromEnv 只叠加环境变量（不读配置文件），用于测试与纯 env 场景。
+func LoadFromEnv(mode Mode) (Config, error) {
+	return Load(LoadOptions{Mode: mode})
+}
+
+// applyEnvOverrides 把 MACPANEL_* 环境变量叠加到 cfg 上。
+func applyEnvOverrides(cfg *Config) error {
 	if v := os.Getenv("MACPANEL_LISTEN_ADDR"); v != "" {
 		cfg.ListenAddr = v
 	}
@@ -134,7 +187,7 @@ func LoadFromEnv(mode Mode) (Config, error) {
 	if v := os.Getenv("MACPANEL_ALLOW_REMOTE"); v != "" {
 		b, err := strconv.ParseBool(v)
 		if err != nil {
-			return cfg, fmt.Errorf("MACPANEL_ALLOW_REMOTE 不是合法布尔值: %q", v)
+			return fmt.Errorf("MACPANEL_ALLOW_REMOTE 不是合法布尔值: %q", v)
 		}
 		cfg.AllowRemote = b
 	}
@@ -144,21 +197,18 @@ func LoadFromEnv(mode Mode) (Config, error) {
 	if v := os.Getenv("MACPANEL_SOCKET_GID"); v != "" {
 		gid, err := strconv.ParseUint(v, 10, 32)
 		if err != nil {
-			return cfg, fmt.Errorf("MACPANEL_SOCKET_GID 不是合法 GID: %w", err)
+			return fmt.Errorf("MACPANEL_SOCKET_GID 不是合法 GID: %w", err)
 		}
 		cfg.SocketGID = uint32(gid)
 	}
 	if v := os.Getenv("MACPANEL_ALLOWED_PEER_UIDS"); v != "" {
 		uids, err := parseUIDList(v)
 		if err != nil {
-			return cfg, err
+			return err
 		}
 		cfg.AllowedPeerUIDs = uids
 	}
-	if err := cfg.Validate(); err != nil {
-		return cfg, err
-	}
-	return cfg, nil
+	return nil
 }
 
 // splitAndTrim 按逗号切分并去空白，丢弃空项。
@@ -216,16 +266,17 @@ func (c *Config) Validate() error {
 	}
 
 	if c.Mode == ModeServer {
-		if err := validateListenAddr(c.ListenAddr, c.AllowRemote); err != nil {
+		if err := ValidateListenAddr(c.ListenAddr, c.AllowRemote); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// validateListenAddr 强制「默认只监听回环」这一安全不变量。
-// 只填端口时补成 127.0.0.1；非回环地址必须同时打开 AllowRemote。
-func validateListenAddr(addr string, allowRemote bool) error {
+// ValidateListenAddr 强制「默认只监听回环」这一安全不变量。
+// 空主机名、0.0.0.0、:: 视为监听所有网卡；这些与非回环 IP 一样，
+// 必须显式打开 AllowRemote 才能通过校验。
+func ValidateListenAddr(addr string, allowRemote bool) error {
 	if addr == "" {
 		return fmt.Errorf("ListenAddr 不能为空")
 	}
@@ -262,9 +313,9 @@ func validateListenAddr(addr string, allowRemote bool) error {
 	return nil
 }
 
-// IsLoopbackListen 判断配置是否只监听回环地址。
-func (c *Config) IsLoopbackListen() bool {
-	host, _, err := net.SplitHostPort(c.ListenAddr)
+// IsLoopbackAddr 判断地址是否只监听回环。
+func IsLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return false
 	}
@@ -275,21 +326,51 @@ func (c *Config) IsLoopbackListen() bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// IsLoopbackListen 判断配置是否只监听回环地址。
+func (c *Config) IsLoopbackListen() bool {
+	return IsLoopbackAddr(c.ListenAddr)
+}
+
+// IsWildcardListen 判断是否监听所有网卡（0.0.0.0 / :: / 空主机名）。
+func (c *Config) IsWildcardListen() bool {
+	host, _, err := net.SplitHostPort(c.ListenAddr)
+	if err != nil {
+		return false
+	}
+	return host == "" || host == "0.0.0.0" || host == "::"
+}
+
+// LoopbackURL 返回可用的本机访问地址；回环没有被监听时返回空字符串。
+//
+// 用途：远程模式下初次设置密码只接受回环来源，启动日志必须把可用的
+// 本机地址打出来，否则用户看着「服务已启动」却找不到入口。
+func (c *Config) LoopbackURL() string {
+	_, port, err := net.SplitHostPort(c.ListenAddr)
+	if err != nil {
+		return ""
+	}
+	if c.IsLoopbackListen() || c.IsWildcardListen() {
+		return "http://127.0.0.1:" + port
+	}
+	return ""
+}
+
 // DatabasePath 返回 SQLite 文件路径。
 func (c *Config) DatabasePath() string {
 	return filepath.Join(c.DataDir, "macpanel.db")
 }
 
-// NormalizedListenAddr 把 localhost 换成 127.0.0.1，便于日志与监听一致。
+// NormalizedListenAddr 统一监听地址写法，便于日志与监听保持一致。
+//
+// 只把 localhost 换成 127.0.0.1。空主机名（":7788"）代表「所有网卡」，
+// 绝不能改写成 127.0.0.1 —— 那会把已允许远程的配置悄悄降级成只有本机能连，
+// 而校验阶段又按「所有网卡」放行，两边判断不一致。
 func (c *Config) NormalizedListenAddr() string {
 	host, port, err := net.SplitHostPort(c.ListenAddr)
 	if err != nil {
 		return c.ListenAddr
 	}
 	if strings.EqualFold(host, "localhost") {
-		return net.JoinHostPort("127.0.0.1", port)
-	}
-	if host == "" {
 		return net.JoinHostPort("127.0.0.1", port)
 	}
 	return net.JoinHostPort(host, port)

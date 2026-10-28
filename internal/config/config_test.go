@@ -254,6 +254,37 @@ func TestNormalizedListenAddr(t *testing.T) {
 	if got := cfg.NormalizedListenAddr(); got != "[::1]:7788" {
 		t.Errorf("IPv6 回环地址应保持不变: %s", got)
 	}
+
+	// 空主机名等于「所有网卡」。改写成 127.0.0.1 会让已开启的远程访问
+	// 悄悄退化成只有本机能连，而校验阶段又按「所有网卡」放行。
+	cfg.ListenAddr = ":7788"
+	if got := cfg.NormalizedListenAddr(); got != ":7788" {
+		t.Errorf("空主机名不应被改写成回环: %s", got)
+	}
+}
+
+// TestWildcardListenAndLoopbackURL 验证所有网卡监听下的本机入口推导。
+func TestWildcardListenAndLoopbackURL(t *testing.T) {
+	cases := []struct {
+		addr     string
+		wildcard bool
+		loopback string
+	}{
+		{"127.0.0.1:7788", false, "http://127.0.0.1:7788"},
+		{"0.0.0.0:7788", true, "http://127.0.0.1:7788"},
+		{":7788", true, "http://127.0.0.1:7788"},
+		{"10.10.10.10:7788", false, ""},
+	}
+	for _, c := range cases {
+		cfg := Defaults()
+		cfg.ListenAddr = c.addr
+		if got := cfg.IsWildcardListen(); got != c.wildcard {
+			t.Errorf("%s: 期望 wildcard=%v，实际 %v", c.addr, c.wildcard, got)
+		}
+		if got := cfg.LoopbackURL(); got != c.loopback {
+			t.Errorf("%s: 本机入口期望 %q，实际 %q", c.addr, c.loopback, got)
+		}
+	}
 }
 
 // TestIsLoopbackListen 验证回环判定。
@@ -305,5 +336,128 @@ func TestPublicHostsEmpty(t *testing.T) {
 	}
 	if len(cfg.PublicHosts) != 0 {
 		t.Errorf("未配置时不应有额外 Host，实际 %v", cfg.PublicHosts)
+	}
+}
+
+// writeConf 在临时目录写入配置文件并返回路径。
+func writeConf(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "server.conf")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("写入测试配置失败: %v", err)
+	}
+	return path
+}
+
+// TestParseConfigFile 验证注释、空行与各配置项的解析。
+func TestParseConfigFile(t *testing.T) {
+	path := writeConf(t, `
+# 注释
+listen = 0.0.0.0:7788
+
+allow_remote = true
+public_hosts = a.example.com:443 , b:5199,,
+`)
+	v, err := ParseConfigFile(path)
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if v.Listen != "0.0.0.0:7788" {
+		t.Errorf("listen 解析错误: %q", v.Listen)
+	}
+	if v.AllowRemote == nil || !*v.AllowRemote {
+		t.Errorf("allow_remote 解析错误: %v", v.AllowRemote)
+	}
+	if len(v.PublicHosts) != 2 || v.PublicHosts[0] != "a.example.com:443" {
+		t.Errorf("public_hosts 解析错误: %v", v.PublicHosts)
+	}
+}
+
+// TestParseConfigFileMissing 验证文件缺失不算错误（纯默认配置是合法状态）。
+func TestParseConfigFileMissing(t *testing.T) {
+	v, err := ParseConfigFile(filepath.Join(t.TempDir(), "nope.conf"))
+	if err != nil {
+		t.Fatalf("缺失文件不应报错: %v", err)
+	}
+	if v.Listen != "" || v.AllowRemote != nil || v.PublicHosts != nil {
+		t.Errorf("缺失文件应返回零值，实际 %+v", v)
+	}
+}
+
+// TestParseConfigFileErrors 验证语法错误与未知键必须报错。
+//
+// 未知键静默忽略会让用户以为改生效了，实际还在跑默认值。
+func TestParseConfigFileErrors(t *testing.T) {
+	cases := map[string]string{
+		"缺等号":  "listen 0.0.0.0:7788\n",
+		"未知键":  "lstien = 0.0.0.0:7788\n",
+		"布尔非法": "allow_remote = yes\n",
+		"空地址":  "listen =\n",
+	}
+	for name, body := range cases {
+		if _, err := ParseConfigFile(writeConf(t, body)); err == nil {
+			t.Errorf("%s 应报错", name)
+		}
+	}
+}
+
+// TestLoadConfigFilePrecedence 验证 默认值 < 文件 < 环境变量 的覆盖顺序。
+func TestLoadConfigFilePrecedence(t *testing.T) {
+	path := writeConf(t, "listen = 0.0.0.0:7788\nallow_remote = true\n")
+
+	cfg, err := Load(LoadOptions{Mode: ModeServer, ConfigFile: path})
+	if err != nil {
+		t.Fatalf("加载失败: %v", err)
+	}
+	if cfg.ListenAddr != "0.0.0.0:7788" || !cfg.AllowRemote {
+		t.Errorf("文件未生效: addr=%s allowRemote=%v", cfg.ListenAddr, cfg.AllowRemote)
+	}
+	if cfg.ConfigFile != path {
+		t.Errorf("ConfigFile 未记录: %s", cfg.ConfigFile)
+	}
+
+	t.Setenv("MACPANEL_LISTEN_ADDR", "127.0.0.1:9002")
+	cfg, err = Load(LoadOptions{Mode: ModeServer, ConfigFile: path})
+	if err != nil {
+		t.Fatalf("加载失败: %v", err)
+	}
+	if cfg.ListenAddr != "127.0.0.1:9002" {
+		t.Errorf("环境变量应覆盖文件，实际 %s", cfg.ListenAddr)
+	}
+}
+
+// TestLoadConfigFileRejectsRemoteWithoutOptIn 验证文件里开了非回环监听
+// 却没开 allow_remote 时直接失败，而不是启动后静默降级。
+func TestLoadConfigFileRejectsRemoteWithoutOptIn(t *testing.T) {
+	path := writeConf(t, "listen = 0.0.0.0:7788\n")
+	if _, err := Load(LoadOptions{Mode: ModeServer, ConfigFile: path}); err == nil {
+		t.Fatal("非回环监听缺少 allow_remote=true 时应报错")
+	}
+}
+
+// TestWriteConfigFileRoundTrip 验证写入后能被原样读回，且权限为 0640。
+func TestWriteConfigFileRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.conf")
+	yes := true
+	want := FileValues{Listen: "0.0.0.0:7788", AllowRemote: &yes, PublicHosts: []string{"a:1"}}
+
+	if err := WriteConfigFile(path, want); err != nil {
+		t.Fatalf("写入失败: %v", err)
+	}
+	got, err := ParseConfigFile(path)
+	if err != nil {
+		t.Fatalf("读回失败: %v", err)
+	}
+	if got.Listen != want.Listen || got.AllowRemote == nil || !*got.AllowRemote ||
+		len(got.PublicHosts) != 1 || got.PublicHosts[0] != "a:1" {
+		t.Errorf("往返不一致: %+v", got)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("读取文件信息失败: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o640 {
+		t.Errorf("配置文件权限应为 0640，实际 %o", perm)
 	}
 }
