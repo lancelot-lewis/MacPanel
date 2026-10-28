@@ -56,14 +56,20 @@ check() {
 if [[ $# -ge 1 ]]; then
 	PKG="$1"
 else
-	# 注意：macOS 自带的 bash 是 3.2，不支持 negative subscript（arr[-1]），
-	# 因此这里用 tail 取最后一个，而不是 `${ALL[-1]}`。
-	ALL="$(cd "${REPO_ROOT}" && ls MacPanel-*.pkg 2>/dev/null | sort -V)"
+	# 取「最近构建」的那个包，而不是版本号最大的。
+	#
+	# 版本号有两个来源（CI 传 run_number、本地回退提交计数），两者不同源：
+	# 本地刚构建出 0.1.62 时，仓库根目录可能还躺着上次 CI 风格的
+	# MacPanel-0.1.1011.pkg —— 按版本号排它反而更大，于是「刚构建完
+	# make verify-pkg」校验的是那个旧包，30 项全绿却什么也没验到。
+	# 构建时间才是「最新」的真实含义。
+	# 注意：macOS 自带 bash 是 3.2，不支持 negative subscript（arr[-1]）。
+	ALL="$(cd "${REPO_ROOT}" && ls -t MacPanel-*.pkg 2>/dev/null)"
 	if [[ -z "${ALL}" ]]; then
 		echo "错误: 未找到 MacPanel-*.pkg，请先运行 make pkg" >&2
 		exit 2
 	fi
-	PKG="${REPO_ROOT}/$(printf '%s\n' "${ALL}" | tail -1)"
+	PKG="${REPO_ROOT}/$(printf '%s\n' "${ALL}" | head -1)"
 fi
 
 if [[ ! -f "${PKG}" ]]; then
