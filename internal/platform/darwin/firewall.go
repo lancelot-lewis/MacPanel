@@ -47,23 +47,41 @@ func (c *Collector) FirewallStatus(ctx context.Context) (model.FirewallStatus, e
 		res, err := execx.Run(ctx, cmdTimeout, "/sbin/pfctl", "-s", "Anchors")
 		if err == nil {
 			st.LoadedAnchors = parseAnchorList(res.Stdout)
+			// pfctl -s Anchors 是「是否真的被加载」的唯一权威来源。
+			// 不在这里回填，Anchor.State 就永远停在 present，
+			// 后续判定会把「已加载」误判成「未加载」。
+			for _, name := range st.LoadedAnchors {
+				if name == st.Anchor.Name {
+					st.Anchor.State = model.AnchorLoaded
+					break
+				}
+			}
 		} else {
 			st.Warnings = append(st.Warnings, "无法列出已加载 anchor："+reasonOf(err))
 		}
 	}
 
-	// 期望状态判定：只有 anchor 文件存在且主配置引用它，才算「已配置」。
-	if st.Anchor.Present && st.Anchor.Referenced {
+	// 期望状态判定。
+	//
+	// 关键点：**规则文件存在 ≠ 规则生效**。anchor 只有在 /etc/pf.conf 里被
+	// `anchor` / `load anchor` 引用，才会被主规则集跳转进去评估；否则规则
+	// 只是躺在文件里、最多被加载进一个没人访问的 anchor。
+	// 这种情况既不能报 configured（会让人以为防火墙在工作），
+	// 也不能报 not_configured（规则确实存在），只能报 drift。
+	switch {
+	case st.Anchor.Present && st.Anchor.Referenced:
 		st.Managed = model.StateConfigured
 		if st.PF.ReadAvailable && st.Anchor.State != model.AnchorLoaded {
 			st.Managed = model.StateDrift
 			st.Warnings = append(st.Warnings,
 				"anchor 规则文件与主配置引用均存在，但 PF 未加载该 anchor，实际状态与期望不一致")
 		}
-	}
-	if st.Anchor.Present && !st.Anchor.Referenced {
+	case st.Anchor.Present:
+		st.Managed = model.StateDrift
 		st.Warnings = append(st.Warnings,
-			"anchor 规则文件存在，但未在 /etc/pf.conf 中引用，规则不会生效")
+			"anchor 规则文件存在，但 /etc/pf.conf 未引用 "+st.Anchor.Name+
+				"：规则不会被任何包匹配，当前不生效。重新安装 PKG 会自动写入引用，"+
+				"或手工在 /etc/pf.conf 追加 anchor 与 load anchor 两行后执行 pfctl -f /etc/pf.conf")
 	}
 
 	return st, nil

@@ -34,6 +34,9 @@ const (
 	SystemTokenPath  = SystemConfigDir + "/ipc.token"
 	SystemAnchorName = "com.macpanel.ipv6"
 	SystemAnchorPath = "/etc/pf.anchors/" + SystemAnchorName
+	// SystemPFConfPath 是 PF 主规则集配置。
+	// 应用规则前要确认它引用了本应用的 anchor —— 未引用时规则不会被评估。
+	SystemPFConfPath = "/etc/pf.conf"
 )
 
 // Defaults 返回一组安全默认配置。
@@ -46,6 +49,7 @@ func Defaults() Config {
 		LogDir:     SystemLogDir,
 		AnchorName: SystemAnchorName,
 		AnchorPath: SystemAnchorPath,
+		PFConfPath: SystemPFConfPath,
 		// IPC / HTTP 超时
 		IPCTimeout:      5 * time.Second,
 		ShutdownTimeout: 10 * time.Second,
@@ -66,6 +70,9 @@ type Config struct {
 	LogDir     string
 	AnchorName string
 	AnchorPath string
+	// PFConfPath 是 PF 主规则集配置路径。应用规则前会检查它是否引用 AnchorName，
+	// 未引用则拒绝应用（否则规则加载成功但永远不会被任何包匹配）。
+	PFConfPath string
 
 	IPCTimeout      time.Duration
 	ShutdownTimeout time.Duration
@@ -120,6 +127,9 @@ func LoadFromEnv(mode Mode) (Config, error) {
 	}
 	if v := os.Getenv("MACPANEL_ANCHOR_PATH"); v != "" {
 		cfg.AnchorPath = v
+	}
+	if v := os.Getenv("MACPANEL_PF_CONF_PATH"); v != "" {
+		cfg.PFConfPath = v
 	}
 	if v := os.Getenv("MACPANEL_ALLOW_REMOTE"); v != "" {
 		b, err := strconv.ParseBool(v)

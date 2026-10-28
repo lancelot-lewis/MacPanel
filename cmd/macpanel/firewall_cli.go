@@ -214,6 +214,7 @@ func openFirewallEnv(sub string, args []string) (firewallEnv, error) {
 		Applier:        applier,
 		AnchorName:     cfg.AnchorName,
 		RulePath:       cfg.AnchorPath,
+		PFConfPath:     cfg.PFConfPath,
 		ConfirmTimeout: firewalld.DefaultConfirmTimeout,
 		Logger:         cliFirewallLogger{dryRun: env.dryRun},
 	})

@@ -126,6 +126,21 @@ agent/firewall.go   流程编排：生成 → 校验 → 写文件 → 事务
 3. **绝不用 `pfctl -d`**（全局关闭影响所有服务）；回滚 = 清空本应用 anchor。
 4. **不用 `set skip on lo0`**（主规则集指令，anchor 内无效），用 `pass quick on lo0 all`。
 
+**第五条（实机踩出来）：anchor 被引用 ≠ 被加载 ≠ 真正生效，三者必须分开判。**
+- `pfctl -a <name> -f <file>` 在**未被 `/etc/pf.conf` 引用**时同样返回成功：规则静态存在、
+  甚至出现在 `pfctl -s Anchors`，但主规则集从不跳转进去，**没有任何包命中它们**。
+  此时报「已应用」就是伪造状态。→ `Apply` 前置校验未引用直接拒绝；
+  `/etc/pf.conf` 的引用由 **postinstall 幂等写入**（`# BEGIN/END MACPANEL IPV6 MANAGED`
+  标记段，先 `pfctl -n` 校验再 `pfctl -f`，失败自动还原），卸载只删这段标记。
+- `AnchorState.loaded` 必须由 `pfctl -s Anchors` 输出回填，否则永远停在 `present`，
+  状态机把「已加载」判成「未加载」，`managed` 恒为 `drift`。
+- 状态判定：文件存在 = `present`；在 `pfctl -s Anchors` 里 = `loaded`；
+  两者 + 已被引用才够 `configured`；有规则但未引用 = `drift`，**不是 `not_configured`**。
+
+**PF 语法硬约束**：`on <接口>` 必须写在 `inet`/`inet6` **之前**
+（`block in quick on en0 inet6 all`）。写反了 `pfctl -n` 直接 syntax error，
+而 Go 侧校验器只查动作/方向/端口，看不出顺序问题。
+
 pfctl 三层限制别简化：`execx.allowedBinaries`（路径）→ `execx.argGuards`（参数）→
 `PFExecutor`（anchor 名 + 文件路径白名单）。初版只有路径白名单时 `pfctl -d` 可被发起。
 

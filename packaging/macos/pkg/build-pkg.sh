@@ -287,14 +287,57 @@ if grep -q "__SERVER_" /Library/LaunchDaemons/com.macpanel.agent.plist; then
 fi
 plutil -lint /Library/LaunchDaemons/com.macpanel.agent.plist >/dev/null
 
-# 5. 加载 launchd 服务（先卸旧再装新，避免残留旧定义）
+# 5. 让 PF 主规则集引用本应用的 anchor
+#
+# 这不只是「顺手补一行」：anchor 只有在 /etc/pf.conf 里被 `anchor` /
+# `load anchor` 引用之后，主规则集才会跳转进去评估。没有引用时
+# `pfctl -a <name> -f <file>` 依然会成功 —— 规则静态存在，甚至出现在
+# `pfctl -s Anchors` 里，但没有任何包会命中它们。
+# 让用户手工抄这两行是不现实的：漏了不会报错，只会得到一层看起来在工作、
+# 实际完全不拦的防火墙。所以由安装器幂等写入。
+PF_CONF="/etc/pf.conf"
+ANCHOR_NAME="com.macpanel.ipv6"
+ANCHOR_FILE="/etc/pf.anchors/${ANCHOR_NAME}"
+MARKER_BEGIN="# BEGIN MACPANEL IPV6 MANAGED"
+MARKER_END="# END MACPANEL IPV6 MANAGED"
+
+if awk -v a="${ANCHOR_NAME}" '!/^[[:space:]]*#/ && index($0,"anchor") && index($0,a) {f=1} END{exit f?0:1}' "${PF_CONF}"; then
+	echo "PF 主配置已引用 ${ANCHOR_NAME}，跳过"
+else
+	# anchor 文件必须先存在：`load anchor ... from` 指向不存在的文件会让
+	# 整个 pf.conf 解析失败，机器将得不到任何主规则集。
+	[[ -f "${ANCHOR_FILE}" ]] || install -m 0600 -o root -g wheel /dev/null "${ANCHOR_FILE}"
+
+	PF_BACKUP="${PF_CONF}.macpanel-backup"
+	cp -p "${PF_CONF}" "${PF_BACKUP}"
+	{
+		printf '\n%s\n' "${MARKER_BEGIN}"
+		printf 'anchor "%s"\n' "${ANCHOR_NAME}"
+		printf 'load anchor "%s" from "%s"\n' "${ANCHOR_NAME}" "${ANCHOR_FILE}"
+		printf '%s\n' "${MARKER_END}"
+	} >> "${PF_CONF}"
+
+	# 先 `-n` 只解析：写坏了必须能退回去，绝不能把机器留在没有主规则集的状态。
+	if ! pfctl -n -f "${PF_CONF}"; then
+		cp -p "${PF_BACKUP}" "${PF_CONF}"
+		echo "错误: ${PF_CONF} 语法检查失败，已还原备份" >&2
+		exit 1
+	fi
+	echo "PF 主配置已写入 ${ANCHOR_NAME} 引用"
+	if [[ -s "${ANCHOR_FILE}" ]]; then
+		echo "重载主规则集（注意：本应用已保存的规则将随之生效）"
+	fi
+	pfctl -f "${PF_CONF}"
+fi
+
+# 6. 加载 launchd 服务（先卸旧再装新，避免残留旧定义）
 echo "加载 launchd 服务"
 launchctl bootout system /Library/LaunchDaemons/com.macpanel.agent.plist 2>/dev/null || true
 launchctl bootout system /Library/LaunchDaemons/com.macpanel.server.plist 2>/dev/null || true
 launchctl bootstrap system /Library/LaunchDaemons/com.macpanel.agent.plist
 launchctl bootstrap system /Library/LaunchDaemons/com.macpanel.server.plist
 
-# 6. 自检：若 plist 在注册后消失，会表现为「安装一切正常、面板却打不开」，
+# 7. 自检：若 plist 在注册后消失，会表现为「安装一切正常、面板却打不开」，
 #    且事后极难自查。这里显式报出来。
 #    已知历史原因：旧版 tasksched 的孤儿清理误删本应用自身服务（已修）。
 #    若再现，优先怀疑同类回归或第三方「清理 / 启动项管理」类工具。
@@ -308,7 +351,9 @@ fi
 echo "安装完成。管理面板: http://127.0.0.1:7788"
 echo ""
 echo "说明："
-echo "  · 安装器不会启用任何 PF 规则——IPv6 防火墙需要你在面板里显式编辑并应用。"
+echo "  · 安装器只写入 PF 主配置对 anchor 的引用，不启用任何规则——"
+echo "    IPv6 防火墙需要你在面板里显式编辑并应用。"
+echo "  · 若此前已保存过规则，重载主规则集会让它们立刻生效。"
 echo "  · 应用规则会进入 60 秒确认倒计时，未确认会自动回滚。"
 echo "  · 若规则导致 SSH 失联，在本机终端执行："
 echo "      sudo ${BIN} firewall status"

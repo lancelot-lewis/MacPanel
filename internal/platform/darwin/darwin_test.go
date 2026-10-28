@@ -206,9 +206,14 @@ func TestAnchorPresentButNotReferenced(t *testing.T) {
 	if st.Managed == model.StateConfigured {
 		t.Error("未被引用时不应判定为 configured")
 	}
+	// 规则文件存在但没人评估它：既不是「已配置」，也不是「未配置」，
+	// 而是一种必须显式暴露的漂移状态。
+	if st.Managed != model.StateDrift {
+		t.Errorf("未被引用时应判定为 drift，实际 %s", st.Managed)
+	}
 	var found bool
 	for _, w := range st.Warnings {
-		if w != "" && contains(w, "未在 /etc/pf.conf 中引用") {
+		if w != "" && contains(w, "未引用") && contains(w, "不生效") {
 			found = true
 		}
 	}

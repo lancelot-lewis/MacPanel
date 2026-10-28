@@ -123,12 +123,14 @@ sudo installer -pkg MacPanel-<version>.pkg -target /   # 文件名随版本号�
 - [ ] `sudo launchctl print system/com.macpanel.server` 有输出，所属用户为 `_macpanel`
 - [ ] `curl -s http://127.0.0.1:7788/api/v1/healthz` 返回 OK
 - [ ] 浏览器打开 `http://127.0.0.1:7788`，概览页显示真实 CPU / 内存 / 磁盘
-- [ ] `/Library/Application Support/MacPanel` 属主 root:wheel 0750，
+- [ ] `/Library/Application Support/MacPanel` 属主 root:_macpanel 0750，
       其中 `data` 属主 `_macpanel` 0700
 - [ ] IPC 令牌 `root:_macpanel 0640`
 - [ ] `/Library/Logs/MacPanel` 下出现 agent / server 日志且**没有报错堆栈**
 - [ ] `sudo macpanel firewall status` 显示「空闲」，PF 状态为真实值（非「未知」）
-- [ ] 安装**没有**修改 `/etc/pf.conf`、没有新增 anchor 文件
+- [ ] `/etc/pf.conf` **只多出**一段 `# BEGIN/END MACPANEL IPV6 MANAGED`，
+      其中含 `anchor "com.macpanel.ipv6"` 与 `load anchor ... from ...`；
+      文件其它内容与安装前逐字节一致（`diff` 备份可验），第三方 anchor 完好
 
 重启后复核：
 
@@ -186,7 +188,7 @@ sudo macpanel-uninstall
 - [ ] `/var/run/macpanel` 被删除
 - [ ] 数据目录**默认保留**（提示了 `backups/` 可找回）
 - [ ] 从未执行过 `pfctl -d`（`sudo pfctl -s info` 仍显示 Enabled）
-- [ ] `/etc/pf.conf` 未被修改，第三方 anchor 完好
+- [ ] `/etc/pf.conf` 中的本应用标记段被整段移除，其它内容与安装前一致，第三方 anchor 完好
 - [ ] 用 `--purge` 再跑一遍（先重装），数据与日志被删除
 - [ ] AppleDouble 残留（`._macpanel` 等）被清掉
 - [ ] 卸载后重装可以正常回到 3.1 的状态
@@ -225,6 +227,8 @@ sudo macpanel-uninstall
 | **面板 500，`ls /var/run/macpanel` 显示 socket 为 `root:wheel 0660`** | Socket 由 root 创建，`os.Chmod(0660)` 只改权限位、不动属组，组默认继承 root 的 `wheel`。Server 是 `_macpanel`，不在 wheel 组，others 位 `---`，连接被拒。目录权限改对也没用，卡在 socket 文件本身 | 新增 `MACPANEL_SOCKET_GID`：`ipc.ServerOptions.SocketGID`，`Listen` 后 `os.Chown(path, -1, gid)`。socket 每次 Agent 启动都重建，只能在代码里改，装完补一次没用 |
 | **面板 500，Server 日志 `读取 IPC 令牌失败: open …/ipc.token: permission denied`** | `token` 子命令用 `os.CreateTemp` + `chmod 0600` 写文件，属组是 root 的默认组（wheel），它不设属组。postinstall 只在新令牌时 `chown root:_macpanel` + `chmod 0640`，`else` 分支仅打印「保留原值」——旧安装留下的 `root:wheel 0600` 令牌**永远修不回来** | chown/chmod 移出 `if`，每次安装强制校正，并 `stat` 校验 `root:_macpanel 640`，不符即中止安装 |
 | **防火墙「应用」失败：`pfctl 语法检查失败 … com.macpanel.ipv6:53: syntax error`** | 生成器把接口写在地址族之后：`block in quick inet6 on en0 all` / `pass in quick inet6 on en0 …`。PF 语法要求 `on <接口>` 必须在 `inet`/`inet6` 之前，`pfctl -n` 直接判语法错误；而 Go 侧校验器当时只查动作/方向/端口，看不出关键字顺序，所以界面能存能预览、一点「应用」才炸 | 生成器改为 `block in quick on en0 inet6 all`（`renderRule` 同步调整顺序）；`Verify` 新增关键字顺序检查，命中原生报错行号，附两条回归测试 |
+| **规则「应用成功」但 IPv6 实际完全不拦** | anchor 未被 `/etc/pf.conf` 引用：`pfctl -a <name> -f <file>` 依然成功，规则甚至出现在 `pfctl -s Anchors` 里，但主规则集从不跳转进去，没有任何包命中它们。面板此时显示「已应用」，是典型的假状态 | 安装器幂等写入 `# BEGIN/END MACPANEL IPV6 MANAGED` 两行引用（先 `pfctl -n` 校验，失败自动还原）；`Apply` 在写入前做硬前置校验，未引用直接拒绝并说明原因；状态接口把这种情况判为 `drift` 而不是 `configured` |
+| **PF 明明已加载 anchor，状态却始终报 `drift`** | `AnchorState` 定义了 `loaded`，但**没有任何代码把它赋上**——`collectAnchorInfo` 最多只给到 `present`，于是「已加载」永远判不出来 | 用 `pfctl -s Anchors` 的输出回填：anchor 名出现在列表里即置为 `loaded` |
 | BOM 里有 9 条 `._xxx` AppleDouble | macOS 给本地文件写 `com.apple.provenance`（内核合成，删不掉），pkgbuild 为其生成 AppleDouble | 尽力清除 xattr；卸载时顺手清理；`verify-pkg` 将其列为**警告**并说明原因 |
 
 ---

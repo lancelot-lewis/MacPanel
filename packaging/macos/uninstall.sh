@@ -10,7 +10,8 @@
 #
 # 安全原则（改动本脚本时不要破坏）：
 #   - 绝不执行 pfctl -d：那会全局关闭整机防火墙
-#   - 绝不自动修改 /etc/pf.conf：文件里可能有其它程序的 anchor
+#   - 只增删本应用自己的标记段（# BEGIN/END MACPANEL IPV6 MANAGED），
+#     /etc/pf.conf 的其它任何一行都不碰
 #   - 不删除其它程序的 anchor 或 launchd 项
 #   - 数据与日志默认保留，删除必须显式要求
 #
@@ -43,7 +44,7 @@ MacPanel 卸载脚本
 
 安全边界（本脚本绝不越界）:
   · 不关闭 PF（从不调用 pfctl -d）
-  · 不修改 /etc/pf.conf
+  · 只增删本应用自己的标记段，不改 /etc/pf.conf 的其它内容
   · 不删除其它程序的 anchor 或 launchd 项
 USAGE
 	exit 0
@@ -121,6 +122,36 @@ else
 	echo "    pfctl 不可用，跳过"
 fi
 
+# 移除安装器写入 /etc/pf.conf 的那一段引用。
+# 只删两个标记之间的内容，别处一行都不碰——文件里还有其它程序的 anchor
+# 与 scrub 规则。先备份、再用 pfctl -n 验证，失败就整体还原。
+PF_CONF="/etc/pf.conf"
+MARKER_BEGIN="# BEGIN MACPANEL IPV6 MANAGED"
+MARKER_END="# END MACPANEL IPV6 MANAGED"
+if [[ -f "${PF_CONF}" ]] && grep -qxF "${MARKER_BEGIN}" "${PF_CONF}"; then
+	if ask "是否从 ${PF_CONF} 移除本应用的 anchor 引用？" 1; then
+		PF_BACKUP="${PF_CONF}.macpanel-uninstall-backup"
+		cp -p "${PF_CONF}" "${PF_BACKUP}"
+		awk -v b="${MARKER_BEGIN}" -v e="${MARKER_END}" \
+			'$0==b {skip=1; next} $0==e {skip=0; next} !skip' \
+			"${PF_BACKUP}" >"${PF_CONF}"
+		if /sbin/pfctl -n -f "${PF_CONF}" 2>/dev/null; then
+			if /sbin/pfctl -f "${PF_CONF}" 2>/dev/null; then
+				echo "    已移除引用并重载主规则集"
+			else
+				echo "    已移除引用，但重载失败，请手工执行：sudo pfctl -f ${PF_CONF}" >&2
+			fi
+			rm -f "${PF_BACKUP}"
+		else
+			cp -p "${PF_BACKUP}" "${PF_CONF}"
+			rm -f "${PF_BACKUP}"
+			echo "    移除引用后 ${PF_CONF} 语法检查失败，已还原" >&2
+		fi
+	else
+		echo "    已保留 ${PF_CONF} 中的引用（删除文件前请自行移除，否则 PF 会报错）"
+	fi
+fi
+
 if [[ -f "${ANCHOR}" ]]; then
 	if ask "是否删除规则文件 ${ANCHOR}？" 1; then
 		rm -f "${ANCHOR}"
@@ -128,9 +159,6 @@ if [[ -f "${ANCHOR}" ]]; then
 	else
 		echo "    已保留 ${ANCHOR}"
 	fi
-	echo "    提醒：若 /etc/pf.conf 仍引用本 anchor，请先移除该引用再重载："
-	echo "          sudo pfctl -f /etc/pf.conf"
-	echo "          本脚本不会替你改 /etc/pf.conf。"
 fi
 
 echo "==> 移除可执行文件"

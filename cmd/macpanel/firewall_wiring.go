@@ -77,6 +77,7 @@ func wireFirewall(
 		Applier:        applier,
 		AnchorName:     cfg.AnchorName,
 		RulePath:       cfg.AnchorPath,
+		PFConfPath:     cfg.PFConfPath,
 		ConfirmTimeout: timeout,
 		Logger:         slogAdapter{log},
 	})

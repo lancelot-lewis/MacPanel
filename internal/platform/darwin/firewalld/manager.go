@@ -104,6 +104,10 @@ type Options struct {
 	AnchorName string
 	// RulePath anchor 规则文件路径。
 	RulePath string
+	// PFConfPath 主配置文件路径（通常是 /etc/pf.conf）。
+	// 用于确认 anchor 是否被主规则集引用——未引用的 anchor 永远不会被评估，
+	// 在这种情况下应用规则等于给用户一个「已经生效」的错觉。留空则跳过该校验。
+	PFConfPath string
 	// ConfirmTimeout 未确认自动回滚的等待时长。
 	ConfirmTimeout time.Duration
 	// Now 时间来源，测试可注入。
@@ -131,6 +135,7 @@ type Manager struct {
 	applier        PFApplier
 	anchorName     string
 	rulePath       string
+	pfConfPath     string
 	confirmTimeout time.Duration
 	now            func() time.Time
 	log            Logger
@@ -173,6 +178,7 @@ func New(opts Options) (*Manager, error) {
 		applier:        opts.Applier,
 		anchorName:     opts.AnchorName,
 		rulePath:       opts.RulePath,
+		pfConfPath:     opts.PFConfPath,
 		confirmTimeout: opts.ConfirmTimeout,
 		now:            opts.Now,
 		log:            opts.Logger,
@@ -214,6 +220,12 @@ type ApplyResult struct {
 func (m *Manager) Apply(ctx context.Context, content string, revisionID int64, previousHash string) (ApplyResult, error) {
 	if content == "" {
 		return ApplyResult{}, model.NewError(model.CodeInvalidArgument, "规则内容不能为空")
+	}
+
+	// 0. 前置校验：主配置必须引用本 anchor，否则规则永远不会被评估。
+	//    这一步在任何写盘动作之前，失败时系统零变更。
+	if err := m.ensureAnchorReferenced(); err != nil {
+		return ApplyResult{}, err
 	}
 
 	// 1. 处理残留的 pending 事务
