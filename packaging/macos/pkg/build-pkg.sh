@@ -238,15 +238,26 @@ chmod 0750 "${RUN_DIR}"
 chown -R _macpanel:_macpanel "${LOG_DIR}"
 chmod 0750 "${LOG_DIR}"
 
-# 3. 生成 IPC 共享令牌（仅在不存在时）
+# 3. 生成 IPC 共享令牌（内容仅在不存在时新建）
 #    令牌文件 root:_macpanel 0640：Server 可读，其他账户不可读，root 可写。
+#
+#    权限必须在 if 之外、每次安装都强制校正：
+#    token 子命令用 os.CreateTemp + chmod 0600 写文件，属组是 root 的默认组（wheel），
+#    它本身不设属组。若只在「新建令牌」时 chown/chmod，那么旧安装留下的
+#    root:wheel 0600 令牌永远修不回来 —— 表现为 Server 启动日志里
+#    「读取 IPC 令牌失败: open ...: permission denied」，
+#    而 Agent（root）一切正常，面板所有接口 500。
 if [[ ! -f "${TOKEN}" ]]; then
 	echo "生成 IPC 令牌"
 	"${BIN}" token -force >/dev/null
-	chown root:_macpanel "${TOKEN}"
-	chmod 0640 "${TOKEN}"
 else
 	echo "IPC 令牌已存在，保留原值"
+fi
+chown root:_macpanel "${TOKEN}"
+chmod 0640 "${TOKEN}"
+if [[ "$(stat -f '%Su:%Sg %Lp' "${TOKEN}")" != "root:_macpanel 640" ]]; then
+	echo "错误: IPC 令牌权限应为 root:_macpanel 0640，实际 $(stat -f '%Su:%Sg %Lp' "${TOKEN}")" >&2
+	exit 1
 fi
 
 # 4. 写入 launchd 定义
