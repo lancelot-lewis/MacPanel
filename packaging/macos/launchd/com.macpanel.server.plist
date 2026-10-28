@@ -10,6 +10,12 @@
   本服务必须在用户未登录时也运行，否则重启后无人值守的家庭实验室会失去管理入口。
 
   注意：本文件是模板，安装脚本会替换 __BINARY_PATH__ 与 __LOG_DIR__。
+
+  监听地址与远程访问开关**刻意不在这里**，而在
+  /Library/Application Support/MacPanel/server.conf：
+  本文件每次安装都会被模板覆盖，写在里面的监听地址会在升级时丢失。
+  修改方式：sudo macpanel config set listen 0.0.0.0:7788
+  生效方式：sudo launchctl kickstart -k system/com.macpanel.server
 -->
 <plist version="1.0">
 <dict>
@@ -24,8 +30,6 @@
 
 	<key>EnvironmentVariables</key>
 	<dict>
-		<key>MACPANEL_LISTEN_ADDR</key>
-		<string>127.0.0.1:7788</string>
 		<key>MACPANEL_SOCKET_PATH</key>
 		<string>/var/run/macpanel/agent.sock</string>
 		<key>MACPANEL_TOKEN_PATH</key>

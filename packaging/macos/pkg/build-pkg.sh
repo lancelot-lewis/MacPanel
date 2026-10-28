@@ -238,7 +238,45 @@ chmod 0750 "${RUN_DIR}"
 chown -R _macpanel:_macpanel "${LOG_DIR}"
 chmod 0750 "${LOG_DIR}"
 
-# 3. 生成 IPC 共享令牌（内容仅在不存在时新建）
+# 3. 监听配置（server.conf）
+#
+# 监听地址与远程访问开关刻意不写在 launchd plist 里：plist 每次安装都按模板
+# 重写，写进去的地址会在升级时丢失。此文件只在不存在时创建，之后一律保留。
+SERVER_CONF="${DATA_DIR}/server.conf"
+if [[ ! -f "${SERVER_CONF}" ]]; then
+	echo "创建 server.conf（默认仅本机访问）"
+	cat > "${SERVER_CONF}" <<'SERVERCONF'
+# MacPanel server 配置
+#
+# 优先级：环境变量 > 本文件 > 内置默认值。
+#
+# listen         监听地址，默认 127.0.0.1:7788。要让局域网访问改成 0.0.0.0:7788。
+# allow_remote   是否允许非回环访问。绑非回环地址时必须为 true。
+#                开启后所有访问（含本机）都要求登录，因此必须先设置管理密码。
+# public_hosts   反向代理场景额外允许的 Host（含端口，逗号分隔）。
+#
+# 修改请用（会顺带校验合法性）：
+#   sudo macpanel config set listen 0.0.0.0:7788
+# 生效需重启服务：
+#   sudo launchctl kickstart -k system/com.macpanel.server
+
+listen = 127.0.0.1:7788
+allow_remote = false
+SERVERCONF
+else
+	echo "server.conf 已存在，保留用户配置"
+fi
+# 权限必须每次强制校正：Server 以 _macpanel 运行，只读即可；
+# 文件由 root 建立时属组是 wheel，只改权限位不改属组会读不到，
+# 表现为服务启动即退出（日志「读取配置文件 ... permission denied」）。
+chown root:_macpanel "${SERVER_CONF}"
+chmod 0640 "${SERVER_CONF}"
+if [[ "$(stat -f '%Su:%Sg %Lp' "${SERVER_CONF}")" != "root:_macpanel 640" ]]; then
+	echo "错误: server.conf 权限应为 root:_macpanel 0640，实际 $(stat -f '%Su:%Sg %Lp' "${SERVER_CONF}")" >&2
+	exit 1
+fi
+
+# 4. 生成 IPC 共享令牌（内容仅在不存在时新建）
 #    令牌文件 root:_macpanel 0640：Server 可读，其他账户不可读，root 可写。
 #
 #    权限必须在 if 之外、每次安装都强制校正：
@@ -260,7 +298,7 @@ if [[ "$(stat -f '%Su:%Sg %Lp' "${TOKEN}")" != "root:_macpanel 640" ]]; then
 	exit 1
 fi
 
-# 4. 写入 launchd 定义
+# 5. 写入 launchd 定义
 #
 # 冗余保险：保证 bootstrap 前文件一定存在且内容与模板一致。
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -287,7 +325,7 @@ if grep -q "__SERVER_" /Library/LaunchDaemons/com.macpanel.agent.plist; then
 fi
 plutil -lint /Library/LaunchDaemons/com.macpanel.agent.plist >/dev/null
 
-# 5. 让 PF 主规则集引用本应用的 anchor
+# 6. 让 PF 主规则集引用本应用的 anchor
 #
 # 这不只是「顺手补一行」：anchor 只有在 /etc/pf.conf 里被 `anchor` /
 # `load anchor` 引用之后，主规则集才会跳转进去评估。没有引用时
@@ -342,14 +380,14 @@ else
 	pfctl -f "${PF_CONF}"
 fi
 
-# 6. 加载 launchd 服务（先卸旧再装新，避免残留旧定义）
+# 7. 加载 launchd 服务（先卸旧再装新，避免残留旧定义）
 echo "加载 launchd 服务"
 launchctl bootout system /Library/LaunchDaemons/com.macpanel.agent.plist 2>/dev/null || true
 launchctl bootout system /Library/LaunchDaemons/com.macpanel.server.plist 2>/dev/null || true
 launchctl bootstrap system /Library/LaunchDaemons/com.macpanel.agent.plist
 launchctl bootstrap system /Library/LaunchDaemons/com.macpanel.server.plist
 
-# 7. 自检：若 plist 在注册后消失，会表现为「安装一切正常、面板却打不开」，
+# 8. 自检：若 plist 在注册后消失，会表现为「安装一切正常、面板却打不开」，
 #    且事后极难自查。这里显式报出来。
 #    已知历史原因：旧版 tasksched 的孤儿清理误删本应用自身服务（已修）。
 #    若再现，优先怀疑同类回归或第三方「清理 / 启动项管理」类工具。
@@ -361,6 +399,11 @@ if [[ ! -f /Library/LaunchDaemons/com.macpanel.agent.plist ]]; then
 fi
 
 echo "安装完成。管理面板: http://127.0.0.1:7788"
+echo ""
+echo "局域网访问（如 easytier 分配的 10.10.10.10）："
+echo "  sudo ${BIN} config set listen 0.0.0.0:7788"
+echo "  sudo launchctl kickstart -k system/com.macpanel.server"
+echo "  注意：开启后所有访问（含本机）都需登录，请先在本机设置管理密码。"
 echo ""
 echo "说明："
 echo "  · 安装器只写入 PF 主配置对 anchor 的引用，不启用任何规则——"
