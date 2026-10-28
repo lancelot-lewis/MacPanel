@@ -173,7 +173,9 @@ func Generate(ruleSet model.RuleSet, anchorName string) (*Generated, error) {
 				return nil, model.NewError(model.CodeInvalidArgument,
 					"接口 %s 不允许用于默认拒绝（会切断回环或隧道流量）", iface)
 			}
-			rule := fmt.Sprintf("block in quick inet6 on %s all", iface)
+			// 关键字顺序是 PF 的硬性语法：on <接口> 必须写在地址族（inet6）之前。
+			// 写成 `block in quick inet6 on en0 all` 会被 pfctl 判为 syntax error。
+			rule := fmt.Sprintf("block in quick on %s inet6 all", iface)
 			fmt.Fprintf(&b, "# 接口 %s：除上述放行外，其余 IPv6 入站流量一律拒绝\n", iface)
 			b.WriteString(rule + "\n")
 			gen.Enforced = append(gen.Enforced, EnforcedRule{
@@ -214,11 +216,16 @@ func renderRule(r model.FirewallRule) (string, error) {
 	}
 
 	var parts []string
-	parts = append(parts, string(r.Action), "in", "quick", "inet6")
+	parts = append(parts, string(r.Action), "in", "quick")
 
+	// 关键字顺序是 PF 的硬性语法：on <接口> 必须写在地址族（inet6）之前。
+	// `pass in quick inet6 on en0 ...` 会被 pfctl 判为 syntax error，
+	// 正确写法是 `pass in quick on en0 inet6 ...`。
 	if iface := strings.TrimSpace(r.Interface); iface != "" && !strings.EqualFold(iface, "any") {
 		parts = append(parts, "on", iface)
 	}
+
+	parts = append(parts, "inet6")
 
 	// 协议。any 时不写 proto，但仍保留 inet6 限定。
 	switch r.Protocol {

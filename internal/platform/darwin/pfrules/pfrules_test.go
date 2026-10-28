@@ -349,7 +349,7 @@ func TestDefaultDenyOnlyWhenConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatalf("生成失败: %v", err)
 	}
-	if strings.Contains(gen.Content, "block in quick inet6 on") {
+	if strings.Contains(gen.Content, "block in quick") {
 		t.Error("未配置默认拒绝接口时不应生成 block 规则")
 	}
 	if !strings.Contains(gen.Content, "不阻断任何入站流量") {
@@ -507,5 +507,66 @@ func TestSanitizeCommentTruncatesByRune(t *testing.T) {
 	exact := strings.Repeat("中", 100)
 	if got := sanitizeComment(exact); got != exact {
 		t.Errorf("恰好 100 字符不应被截断，实际长度 %d", len([]rune(got)))
+	}
+}
+
+// TestInterfaceKeywordOrder 验证 on <接口> 一定写在 inet6 之前。
+//
+// 回归：早期默认拒绝生成的是 `block in quick inet6 on en0 all`，
+// renderRule 生成的是 `pass in quick inet6 on en0 ...`。PF 的语法要求
+// on 出现在地址族之前，这两种写法都会被 pfctl 判为 syntax error——
+// 界面点「应用」直接失败，且 Go 侧校验器当时看不出问题。
+func TestInterfaceKeywordOrder(t *testing.T) {
+	rs := model.RuleSet{
+		Rules: []model.FirewallRule{
+			rule("限定接口", func(r *model.FirewallRule) { r.Interface = "en0" }),
+		},
+		DefaultDenyInterfaces: []string{"en0"},
+	}
+	gen, err := Generate(rs, "com.test.ipv6")
+	if err != nil {
+		t.Fatalf("生成失败: %v", err)
+	}
+
+	if !strings.Contains(gen.Content, "block in quick on en0 inet6 all") {
+		t.Errorf("默认拒绝语句应为 `block in quick on en0 inet6 all`，实际内容：\n%s", gen.Content)
+	}
+	if !strings.Contains(gen.Content, "pass in quick on en0 inet6 proto") {
+		t.Errorf("用户规则应为 `pass in quick on en0 inet6 ...`，实际内容：\n%s", gen.Content)
+	}
+
+	for _, line := range strings.Split(gen.Content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if io := indexOfField(fields, "on"); io >= 0 {
+			if ia := indexOfAny(fields, "inet", "inet6"); ia >= 0 && io > ia {
+				t.Errorf("on 出现在地址族之后（pfctl 会报 syntax error）：%s", line)
+			}
+		}
+	}
+}
+
+// TestVerifyDetectsInterfaceKeywordOrder 验证校验器能独立发现 on/inet6 顺序错误。
+func TestVerifyDetectsInterfaceKeywordOrder(t *testing.T) {
+	content := strings.Join([]string{
+		"pass quick on lo0 all",
+		"pass in quick inet6 from ::1 to ::1",
+		"pass out quick inet6 all keep state",
+		"pass in quick inet6 proto ipv6-icmp from any to any icmp6-type { 1, 2, 128, 129, 133, 134, 135, 136, 137 }",
+		"block in quick inet6 on en0 all",
+	}, "\n")
+
+	v := Verify(content, []string{"en0"})
+	if len(v.SyntaxErrors) == 0 {
+		t.Fatal("应报告 on 写在 inet6 之后的语法错误")
+	}
+	if !strings.Contains(v.SyntaxErrors[0].Message, "on 必须写在") {
+		t.Errorf("错误信息应指出关键字顺序，实际：%s", v.SyntaxErrors[0].Message)
+	}
+	if v.SyntaxErrors[0].Line != 5 {
+		t.Errorf("错误行号应为 5，实际 %d", v.SyntaxErrors[0].Line)
 	}
 }

@@ -152,6 +152,13 @@ func Verify(content string, defaultDenyInterfaces []string) Verification {
 			}
 		}
 
+		// 关键字顺序：PF 要求 on <接口> 出现在地址族（inet/inet6）之前。
+		// `block in quick inet6 on en0 all` 会被 pfctl 判为 syntax error，
+		// 正确写法是 `block in quick on en0 inet6 all`。
+		if idxOn, idxAF := indexOfField(fields, "on"), indexOfAny(fields, "inet", "inet6"); idxOn >= 0 && idxAF >= 0 && idxOn > idxAF {
+			v.addSyntax(lineNo, "on 必须写在 inet/inet6 之前（正确写法：block in quick on en0 inet6 all）")
+		}
+
 		// --- 不变量层 ---
 		switch {
 		case verb == "pass" && strings.Contains(line, "on lo0"):
@@ -261,6 +268,28 @@ func Verify(content string, defaultDenyInterfaces []string) Verification {
 
 func (v *Verification) addSyntax(line int, msg string) {
 	v.SyntaxErrors = append(v.SyntaxErrors, Violation{Key: "syntax", Message: msg, Line: line})
+}
+
+// indexOfField 返回 tokens 中第一个完全等于 want 的下标，找不到返回 -1。
+func indexOfField(tokens []string, want string) int {
+	for i, t := range tokens {
+		if t == want {
+			return i
+		}
+	}
+	return -1
+}
+
+// indexOfAny 返回 tokens 中第一个命中 wants 任一项的下标，找不到返回 -1。
+func indexOfAny(tokens []string, wants ...string) int {
+	for i, t := range tokens {
+		for _, w := range wants {
+			if t == w {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 func (v *Verification) addInvariant(line, invariant int, key, msg string) {

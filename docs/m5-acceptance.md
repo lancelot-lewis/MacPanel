@@ -224,6 +224,7 @@ sudo macpanel-uninstall
 | **面板所有状态接口 500，日志 `调用方身份不受信任` / `Forbidden`** | Agent 的 IPC 对端校验 `ipc.UIDAllowed` 只放行「与 Agent 同 euid（root=0）」或 `MACPANEL_ALLOWED_PEER_UIDS` 显式列出的 UID。Server 以 `_macpanel`(350) 运行，而生产 plist 从未设置该变量 | agent plist 模板加 `MACPANEL_ALLOWED_PEER_UIDS = __SERVER_UID__`，postinstall 用 `dscl` 取真实 UID 替换并校验；UID 安装时动态分配，不能写死 |
 | **面板 500，`ls /var/run/macpanel` 显示 socket 为 `root:wheel 0660`** | Socket 由 root 创建，`os.Chmod(0660)` 只改权限位、不动属组，组默认继承 root 的 `wheel`。Server 是 `_macpanel`，不在 wheel 组，others 位 `---`，连接被拒。目录权限改对也没用，卡在 socket 文件本身 | 新增 `MACPANEL_SOCKET_GID`：`ipc.ServerOptions.SocketGID`，`Listen` 后 `os.Chown(path, -1, gid)`。socket 每次 Agent 启动都重建，只能在代码里改，装完补一次没用 |
 | **面板 500，Server 日志 `读取 IPC 令牌失败: open …/ipc.token: permission denied`** | `token` 子命令用 `os.CreateTemp` + `chmod 0600` 写文件，属组是 root 的默认组（wheel），它不设属组。postinstall 只在新令牌时 `chown root:_macpanel` + `chmod 0640`，`else` 分支仅打印「保留原值」——旧安装留下的 `root:wheel 0600` 令牌**永远修不回来** | chown/chmod 移出 `if`，每次安装强制校正，并 `stat` 校验 `root:_macpanel 640`，不符即中止安装 |
+| **防火墙「应用」失败：`pfctl 语法检查失败 … com.macpanel.ipv6:53: syntax error`** | 生成器把接口写在地址族之后：`block in quick inet6 on en0 all` / `pass in quick inet6 on en0 …`。PF 语法要求 `on <接口>` 必须在 `inet`/`inet6` 之前，`pfctl -n` 直接判语法错误；而 Go 侧校验器当时只查动作/方向/端口，看不出关键字顺序，所以界面能存能预览、一点「应用」才炸 | 生成器改为 `block in quick on en0 inet6 all`（`renderRule` 同步调整顺序）；`Verify` 新增关键字顺序检查，命中原生报错行号，附两条回归测试 |
 | BOM 里有 9 条 `._xxx` AppleDouble | macOS 给本地文件写 `com.apple.provenance`（内核合成，删不掉），pkgbuild 为其生成 AppleDouble | 尽力清除 xattr；卸载时顺手清理；`verify-pkg` 将其列为**警告**并说明原因 |
 
 ---
