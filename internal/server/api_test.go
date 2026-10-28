@@ -106,6 +106,12 @@ type testEnv struct {
 // newTestEnv 构建测试环境。allowRemote=false 为本地模式。
 func newTestEnv(t *testing.T, allowRemote bool) *testEnv {
 	t.Helper()
+	return newTestEnvAt(t, allowRemote, "127.0.0.1:7788")
+}
+
+// newTestEnvAt 构建监听指定地址的测试环境（用于验证监听所有网卡时的行为）。
+func newTestEnvAt(t *testing.T, allowRemote bool, listenAddr string) *testEnv {
+	t.Helper()
 
 	dbPath := filepath.Join(t.TempDir(), "api.db")
 	db, err := database.Open(context.Background(), dbPath)
@@ -116,7 +122,7 @@ func newTestEnv(t *testing.T, allowRemote bool) *testEnv {
 
 	cfg := config.Defaults()
 	cfg.Mode = config.ModeServer
-	cfg.ListenAddr = "127.0.0.1:7788"
+	cfg.ListenAddr = listenAddr
 	cfg.AllowRemote = allowRemote
 
 	caller := &stubCaller{
@@ -301,6 +307,36 @@ func TestHostGuardRejectsForeignHost(t *testing.T) {
 	})
 	if rec.Code != http.StatusMisdirectedRequest {
 		t.Fatalf("非法 Host 应被拒绝，实际 %d", rec.Code)
+	}
+}
+
+// TestWildcardListenAllowsIPHost 验证监听 0.0.0.0 时用任意本机 IP 访问都能通过 Host 校验。
+//
+// 这是局域网访问的基本前提：监听所有网卡后，用户敲的是 10.10.10.10 这类
+// 服务端启动时并不知道的地址，无法预先枚举进白名单。
+func TestWildcardListenAllowsIPHost(t *testing.T) {
+	env := newTestEnvAt(t, true, "0.0.0.0:7788")
+	for _, host := range []string{"10.10.10.10:7788", "192.168.1.2:7788", "[::1]:7788"} {
+		rec := env.do(t, http.MethodGet, "/api/v1/auth/status", nil, func(r *http.Request) {
+			r.Host = host
+		})
+		if rec.Code != http.StatusOK {
+			t.Errorf("Host=%s 应放行，实际 %d（%s）", host, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// TestWildcardListenRejectsHostname 验证监听所有网卡时仍拒绝陌生域名 Host。
+//
+// 放行域名等于放弃 DNS rebinding 防护：攻击者只要让自己的域名解析到
+// 内网 IP，浏览器就会带着那个域名当 Host 发请求。
+func TestWildcardListenRejectsHostname(t *testing.T) {
+	env := newTestEnvAt(t, true, "0.0.0.0:7788")
+	rec := env.do(t, http.MethodGet, "/api/v1/auth/status", nil, func(r *http.Request) {
+		r.Host = "evil.example.com"
+	})
+	if rec.Code != http.StatusMisdirectedRequest {
+		t.Fatalf("陌生域名 Host 应被拒绝，实际 %d", rec.Code)
 	}
 }
 

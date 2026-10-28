@@ -149,6 +149,8 @@ func withSecurityHeaders(next http.Handler) http.Handler {
 //
 // 允许的 Host：配置的监听地址（含端口）、localhost、以及回环地址。
 // 远程模式下还允许显式配置的外部域名（MACPANEL_PUBLIC_HOST）。
+// 监听所有网卡（0.0.0.0 / :: / 空主机名）时无法预先枚举，退化为
+// 「必须是 IP 字面量或 localhost」——域名一律要求显式列入白名单。
 type hostGuard struct {
 	allowed  map[string]bool
 	wildcard bool // 监听所有网卡时，Host 只做基础校验
@@ -192,34 +194,21 @@ func (g *hostGuard) check(r *http.Request) bool {
 		}
 	}
 	if g.wildcard {
-		// 监听所有网卡时无法预先枚举 Host，退化为「必须是合法主机名或 IP」。
+		// 监听所有网卡时无法预先枚举合法地址，但**不能**因此放行任意主机名：
+		// DNS rebinding 的攻击前提就是用攻击者控制的域名当 Host。
+		// 只认 IP 字面量与 localhost —— 攻击者无法让浏览器把 Host 变成
+		// 「看起来像 IP」的陌生域名。使用域名访问时显式列入 MACPANEL_PUBLIC_HOSTS。
 		h := host
 		if hh, _, err := net.SplitHostPort(host); err == nil {
 			h = hh
 		}
-		return isValidHostLiteral(h)
+		h = strings.Trim(h, "[]")
+		if h == "localhost" {
+			return true
+		}
+		return net.ParseIP(h) != nil
 	}
 	return false
-}
-
-// isValidHostLiteral 判断是否为 IP 或合法主机名（拒绝奇怪字符）。
-func isValidHostLiteral(h string) bool {
-	if h == "" || len(h) > 253 {
-		return false
-	}
-	if net.ParseIP(h) != nil {
-		return true
-	}
-	for _, r := range h {
-		switch {
-		case r >= 'a' && r <= 'z':
-		case r >= '0' && r <= '9':
-		case r == '-' || r == '.':
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 // withHostGuard 拒绝 Host 头不匹配的请求。
