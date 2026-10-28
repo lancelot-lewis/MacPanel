@@ -100,7 +100,7 @@ make dev-server
 # 打开 http://127.0.0.1:7788
 ```
 
-开发产物全部落在 `.dev/`（数据、日志、Socket、令牌），不会污染系统目录。
+开发产物全部落在 `.dev/`（数据、日志、Socket、令牌、`server.conf`），不会污染系统目录。
 
 ### 命令行诊断
 
@@ -188,6 +188,33 @@ sudo macpanel-uninstall --purge    # 连数据与日志一起删除
 `/Library/Application Support/MacPanel/backups/preupgrade-<时间戳>/`，
 只保留最近 5 份。
 
+## 局域网 / VPN 访问
+
+默认只监听 `127.0.0.1:7788`。要让别的设备访问（例如 easytier 分配的 `10.10.10.10`）：
+
+```bash
+sudo macpanel config set listen 0.0.0.0:7788   # 顺带开启 allow_remote 并校验
+sudo launchctl kickstart -k system/com.macpanel.server
+```
+
+也可以只绑 VPN 地址（`config set listen 10.10.10.10:7788`），但那样 `127.0.0.1`
+就不再监听；改回 `127.0.0.1:7788` 即可回滚。
+
+三条必须提前知道的后果：
+
+1. **所有访问都要登录（含本机）**。开启前先在本机 `http://127.0.0.1:7788` 的
+   设置页设好管理密码，否则局域网内没有可用的登录凭据。
+2. **凭据以明文 HTTP 传输**。easytier / WireGuard 这类 VPN 本身加密链路，可以接受；
+   走普通 Wi-Fi 或公网时应置于 HTTPS 反向代理之后。
+3. **监听 `0.0.0.0` 意味着 en0、bridge、vmenet 上都能连到**。只想给 VPN 用就绑具体地址。
+
+配置存放在 `/Library/Application Support/MacPanel/server.conf`
+（`root:_macpanel 0640`，需要 `sudo` 读写），pkg 升级不会覆盖。优先级：
+环境变量 > 该文件 > 内置默认值。
+
+`sudo macpanel config` 打印生效配置；监听所有网卡时 Host 头只接受 IP 字面量与
+`localhost`（用域名访问需显式配置 `public_hosts`），否则返回 421。
+
 ## 常用命令
 
 ```bash
@@ -250,7 +277,7 @@ sudo ./bin/macpanel agent
 
 | 项 | 实现 |
 | --- | --- |
-| 默认监听 | `127.0.0.1:7788`；非回环地址需显式 `MACPANEL_ALLOW_REMOTE=true` |
+| 默认监听 | `127.0.0.1:7788`；非回环地址需显式 `allow_remote`（`server.conf`，勿写进 plist） |
 | IPC 身份 | `LOCAL_PEERCRED` 对端 uid 校验 + 32 字节共享令牌（常量时间比较） |
 | IPC 防重放 | ±60 秒时间窗 + 唯一请求 ID |
 | 命令执行 | 仅 5 个白名单绝对路径，不经 shell，3 秒超时，输出上限 1 MiB |

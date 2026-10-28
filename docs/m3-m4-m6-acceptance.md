@@ -207,6 +207,11 @@ dozzle      running  tcp/8080（未映射）
 | --- | --- | --- |
 | `MACPANEL_ALLOW_NONLOCAL_PROBE` | 设为 `1` 允许 TCP 探测外部地址 | 关闭 |
 | `MACPANEL_PUBLIC_HOSTS` | 反向代理部署时额外允许的 Host | 空 |
+| `MACPANEL_LISTEN_ADDR` / `MACPANEL_ALLOW_REMOTE` | 临时覆盖监听配置（优先于 `server.conf`） | 见 `server.conf` |
+
+监听地址与 `allow_remote` 的常驻取值在
+`/Library/Application Support/MacPanel/server.conf`（pkg 升级不覆盖），
+用 `sudo macpanel config set listen 0.0.0.0:7788` 修改。
 
 ---
 

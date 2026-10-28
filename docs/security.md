@@ -73,15 +73,47 @@
 
 ### 远程模式（显式开启）
 
+```bash
+sudo macpanel config set listen 0.0.0.0:7788   # 自动置 allow_remote=true
+sudo launchctl kickstart -k system/com.macpanel.server
+```
+
 必须同时满足：
 
-1. `MACPANEL_ALLOW_REMOTE=true`（否则非回环监听校验失败）；
+1. `listen` 为非回环地址，且 `allow_remote = true`（否则校验失败、服务不启动）；
 2. 请求携带 `X-HLM-Request: 1` 自定义头（跨站无法在不触发预检的情况下附加）；
 3. 携带有效会话 cookie，通过 `ValidateSession`；
 4. 建议置于 HTTPS 反向代理后（cookie 的 `Secure` 由 `r.TLS` 或 `X-Forwarded-Proto` 决定）。
 
 启用远程前**必须**先设置管理密码（≥12 字符）。未设置时登录接口一律失败，且登录页
 引导用户到本机设置密码——不在远程端开放「免认证设置初始密码」的入口。
+
+因此**本机入口必须保持可达**：绑具体非回环 IP（如 `10.10.10.10:7788`）会让回环不再
+监听，此时若尚未设密码就无法完成初始化。回退方式是
+`sudo macpanel config set listen 127.0.0.1:7788`（CLI 不需要面板可访问）。
+
+### 3.1 配置来源
+
+监听地址与远程开关存放在 `/Library/Application Support/MacPanel/server.conf`
+（`root:_macpanel 0640`），而不是 launchd plist：
+
+- plist 由 `postinstall` 每次按模板重写，写在里面的地址会在升级时丢失；
+- launchd 启动的进程没有交互式 shell，环境变量无处可改。
+
+优先级 `环境变量 > server.conf > 内置默认值`。未知配置项与语法错误直接拒绝启动——
+静默忽略拼错的键，会让人以为改生效了、实际还在跑默认值。
+`MACPANEL_LISTEN_ADDR` / `MACPANEL_ALLOW_REMOTE` 仍可用作临时覆盖。
+
+### 3.2 监听所有网卡时的 Host 校验
+
+`0.0.0.0` / `::` / 空主机名无法预先枚举合法地址，但**不放行任意域名**：只接受
+IP 字面量与 `localhost`。DNS rebinding 的攻击前提正是「攻击者控制的域名出现在
+Host 里」，因此域名必须显式列入 `public_hosts`，否则一律 421。
+
+### 3.3 明文的边界
+
+面板本身不提供 TLS。经 WireGuard / easytier 等已加密隧道访问可以接受；在普通
+局域网或公网暴露时必须置于 HTTPS 反向代理之后，否则登录密码与会话 cookie 明文过网。
 
 ## 4. Agent 权限最小化
 
