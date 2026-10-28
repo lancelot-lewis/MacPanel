@@ -25,7 +25,11 @@ func (c *Collector) FirewallStatus(ctx context.Context) (model.FirewallStatus, e
 	st := model.FirewallStatus{
 		Managed:     model.StateNotConfigured,
 		CollectedAt: now,
-		Writable:    false, // M1 未实现写路径，明确声明不可写
+		// Writable 表示当前 Agent 是否具备修改 PF 的能力。
+		// 判据是 euid：加载规则要写 /etc/pf.anchors 与 /dev/pf，非 root 必然失败。
+		// 不能写死 false —— M2 起写路径已完整实现，写死会让界面与 API
+		// 都谎称「不可写」，用户会以为面板只能看不能配。
+		Writable: os.Geteuid() == 0,
 	}
 
 	// --- PF 全局状态 ---

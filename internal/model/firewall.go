@@ -56,7 +56,8 @@ type FirewallStatus struct {
 	LoadedAnchors []string     `json:"loadedAnchors,omitempty"`
 	Warnings      []string     `json:"warnings,omitempty"`
 	CollectedAt   time.Time    `json:"collectedAt"`
-	// Writable 表示当前 Agent 是否具备修改 PF 的能力（M1 恒为 false，
-	// 因为写路径尚未实现，后端不会假装可以操作）。
+	// Writable 表示当前 Agent 是否具备修改 PF 的能力。
+	// 非 root 时如实为 false（写规则与加载 anchor 都需要 root），
+	// 界面据此禁用写入口，而不是让用户点了才失败。
 	Writable bool `json:"writable"`
 }

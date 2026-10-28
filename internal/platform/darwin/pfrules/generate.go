@@ -275,8 +275,10 @@ func sanitizeComment(s string) string {
 		return r
 	}, s)
 	s = strings.TrimSpace(s)
-	if len(s) > 100 {
-		s = s[:100] + "…"
+	// 按 rune 截断，不能按字节：len(s) 是字节数，中文会被切成半个字符，
+	// 生成的文件就不再是合法 UTF-8（注释里出现「��」）。
+	if r := []rune(s); len(r) > 100 {
+		s = string(r[:100]) + "…"
 	}
 	if s == "" {
 		return "(未命名)"

@@ -3,6 +3,7 @@ package pfrules
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/lancelot-lewis/MacPanel/internal/model"
 )
@@ -482,3 +483,29 @@ func TestFindTemplate(t *testing.T) {
 }
 
 // TestFindTemplate 验证按 key 查找。
+
+// TestSanitizeCommentTruncatesByRune 验证超长注释按字符（而非字节）截断。
+//
+// 回归：早期实现用 len(s) > 100 + s[:100]，len 是字节数，
+// 中文会被切成半个字符，生成的文件不再是合法 UTF-8，
+// 注释里出现「��」这类乱码。
+func TestSanitizeCommentTruncatesByRune(t *testing.T) {
+	long := strings.Repeat("中", 120)
+	got := sanitizeComment(long)
+
+	if !utf8.ValidString(got) {
+		t.Fatalf("截断后不是合法 UTF-8：%q", got)
+	}
+	if n := len([]rune(got)); n > 101 { // 100 个字符 + 省略号
+		t.Errorf("按字符截断后长度应 ≤101，实际 %d", n)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Error("超长注释应以省略号结尾")
+	}
+
+	// 恰好 100 个字符不应被截断。
+	exact := strings.Repeat("中", 100)
+	if got := sanitizeComment(exact); got != exact {
+		t.Errorf("恰好 100 字符不应被截断，实际长度 %d", len([]rune(got)))
+	}
+}
