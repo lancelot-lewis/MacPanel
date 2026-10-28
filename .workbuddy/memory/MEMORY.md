@@ -63,6 +63,20 @@ PF 规则、计划重启、launchd 服务必须在浏览器关闭、用户注销
 `hasValidSession()`。按「是否已设密码」分流：未设置（初始化）→ **只允许回环**；
 已设置 + 远程 → 须已登录 + `currentPassword` 正确；已设置 + 本地 → 须本机 + `currentPassword`。
 
+## 监听地址只有 server.conf 一个来源
+
+`/Library/Application Support/MacPanel/server.conf`（`root:_macpanel 0640`），
+优先级 `环境变量 > server.conf > 默认值`，改它用 `sudo macpanel config set listen ...`
++ `launchctl kickstart -k system/com.macpanel.server`。
+
+- **plist 里不许再写 `MACPANEL_LISTEN_ADDR`**：env 优先级更高，写了就等于让
+  配置文件永远失效；而 plist 每次安装都被 postinstall 按模板重写，用户手改必丢。
+- 绑非回环地址必须 `allow_remote = true`（CLI 会自动置），否则启动校验直接失败。
+- 开启后**所有访问都要登录（含本机）**；初始密码只能在回环设置，所以绑具体 IP
+  （`10.10.10.10:7788`）会失去引导入口 —— 回退靠 CLI，不依赖面板可访问。
+- 监听 `0.0.0.0` 时 `hostGuard` **只接受 IP 字面量与 localhost**，域名必须显式
+  `public_hosts`。放行任意主机名等于放弃 DNS rebinding 防护。
+
 ## 安装后的权限与动态值（6 次实机 bug 换来的，改打包必读）
 
 以 `_macpanel` 运行的 Server 要连上 root 的 Agent，**四处必须同时成立**，缺一处就是
