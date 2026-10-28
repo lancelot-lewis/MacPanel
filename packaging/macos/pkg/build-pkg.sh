@@ -301,6 +301,18 @@ ANCHOR_FILE="/etc/pf.anchors/${ANCHOR_NAME}"
 MARKER_BEGIN="# BEGIN MACPANEL IPV6 MANAGED"
 MARKER_END="# END MACPANEL IPV6 MANAGED"
 
+# 先验证既有 anchor 文件本身。
+# 旧版本可能生成过语法非法的内容（例如把 on 写在 inet6 之后），
+# 带着它重载主配置会直接失败、连安装一起中止。
+# 规则的真实来源是数据库里的 revision，文件只是派生物：验证不过就挪走重建，
+# 用户回到面板重新「应用」即可再生。
+if [[ -f "${ANCHOR_FILE}" ]] && ! pfctl -n -f "${ANCHOR_FILE}" >/dev/null 2>&1; then
+	mv "${ANCHOR_FILE}" "${ANCHOR_FILE}.invalid-$(date +%Y%m%d-%H%M%S)"
+	install -m 0600 -o root -g wheel /dev/null "${ANCHOR_FILE}"
+	echo "警告: 旧规则文件语法非法，已改名保留并置空。" >&2
+	echo "      安装完成后请到面板重新「应用」规则（规则本体仍保存在数据库中）。" >&2
+fi
+
 if awk -v a="${ANCHOR_NAME}" '!/^[[:space:]]*#/ && index($0,"anchor") && index($0,a) {f=1} END{exit f?0:1}' "${PF_CONF}"; then
 	echo "PF 主配置已引用 ${ANCHOR_NAME}，跳过"
 else
