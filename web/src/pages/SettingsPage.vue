@@ -164,6 +164,19 @@ watch(
             反向代理之后，否则凭据会以明文传输。
           </template>
         </p>
+
+        <Callout
+          v-if="auth.mode === 'local'"
+          tone="info"
+          badge="局域网"
+          title="需要别的设备访问？"
+          class="mt-3"
+        >
+          在运行本服务的 Mac 上执行
+          <code>sudo macpanel config set listen 0.0.0.0:7788</code>，再
+          <code>sudo launchctl kickstart -k system/com.macpanel.server</code> 生效。
+          开启后所有访问（含本机）都需要登录，请先在本页设置管理密码。
+        </Callout>
       </template>
     </PanelCard>
 
